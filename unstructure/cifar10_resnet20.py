@@ -24,7 +24,7 @@ import torch.nn.functional as F
 import torchvision
 from torch.autograd import Variable
 from training_algorithms import xRDA
-from regularization import l1_kernel_prox, l1_prox,l1_prox_resnet
+from regularization import l1_prox
 from training_algorithms import CosineSpecs
 from utils import test_accuracy
 
@@ -173,7 +173,7 @@ def main():
     training_specs = CosineSpecs(max_iter=math.ceil(len(trainset) / args.batch_size) * args.epochs,
                                  init_step_size=args.lr, mom_ts=args.momentum, b_mom_ts=args.momentum, weight_decay=args.weight_decay)
     optimizer = xRDA(model.parameters(), it_specs=training_specs,
-                     prox=l1_prox_resnet(lam=args.lam, maximum_factor=500, mode='normal'))
+                     prox=l1_prox(lam=args.lam, maximum_factor=500, mode='normal'))
 
     if args.evaluate:
         validate(val_loader, model, criterion)
