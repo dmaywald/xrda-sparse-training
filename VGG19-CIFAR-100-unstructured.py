@@ -29,12 +29,12 @@ def main():
        transforms.Normalize((0.4914, 0.4822, 0.4465),
                             (0.2023, 0.1994, 0.2010))])
 
-  trainset = torchvision.datasets.CIFAR100(root='../../data', train=True,
+  trainset = torchvision.datasets.CIFAR100(root='./', train=True,
                                            download=True, transform=transform_train)
   trainloader = torch.utils.data.DataLoader(trainset, batch_size=128,
                                             shuffle=True, num_workers=6)
 
-  testset = torchvision.datasets.CIFAR100(root='../../data', train=False,
+  testset = torchvision.datasets.CIFAR100(root='./', train=False,
                                           download=True, transform=transform_val)
   testloader = torch.utils.data.DataLoader(testset, batch_size=32,
                                            shuffle=False, num_workers=2)

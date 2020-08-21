@@ -156,13 +156,13 @@ def main():
        transforms.Normalize((0.4914, 0.4822, 0.4465),
                             (0.2023, 0.1994, 0.2010))])
 
-    trainset = torchvision.datasets.CIFAR100(root='../../data', train=True,
-                                          download=False, transform=transform_train)
+    trainset = torchvision.datasets.CIFAR100(root='./', train=True,
+                                          download=True, transform=transform_train)
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                             shuffle=True, num_workers=4)
 
-    valset = torchvision.datasets.CIFAR100(root='../../data', train=False,
-                                         download=False, transform=transform_val)
+    valset = torchvision.datasets.CIFAR100(root='./', train=False,
+                                         download=True, transform=transform_val)
     val_loader = torch.utils.data.DataLoader(valset, batch_size=128,
                                            shuffle=False, num_workers=2)
 

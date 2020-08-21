@@ -15,7 +15,7 @@ from torch.autograd import Variable
 from models import vgg16_bn
 from training_algorithms import xRDA
 from regularization import l1_prox
-from training_algorithms import IterationSpecs
+from training_algorithms import CosineSpecs
 from utils import test_accuracy
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -39,13 +39,13 @@ def main():
        transforms.Normalize((0.4914, 0.4822, 0.4465),
                             (0.2023, 0.1994, 0.2010))])
 
-  trainset = torchvision.datasets.CIFAR10(root='../../data', train=True,
-                                          download=False, transform=transform_train)
+  trainset = torchvision.datasets.CIFAR10(root='./', train=True,
+                                          download=True, transform=transform_train)
   trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
                                             shuffle=True, num_workers=4)
 
-  testset = torchvision.datasets.CIFAR10(root='../../data', train=False,
-                                         download=False, transform=transform_val)
+  testset = torchvision.datasets.CIFAR10(root='./', train=False,
+                                         download=True, transform=transform_val)
   testloader = torch.utils.data.DataLoader(testset, batch_size=32,
                                            shuffle=False, num_workers=2)
 
@@ -56,8 +56,8 @@ def main():
   init_lr = 1.0
   lam = 8e-7
   av_param = 0.0
-  training_specs = IterationSpecs(max_iter=math.ceil(50000 / batch_size) * epoch_count,
-                                  init_step_size=init_lr, mom_ts=9.5, b_mom_ts=9.5, weight_decay=5e-4, init_av_param=av_param)
+  training_specs = CosineSpecs(max_iter=math.ceil(50000 / batch_size) * epoch_count,
+                                  init_step_size=init_lr, mom_ts=9.5, b_mom_ts=9.5, weight_decay=5e-4)
   optimizer = xRDA(conv_net.parameters(), it_specs=training_specs,
                    prox=l1_prox(lam=lam, maximum_factor=500, mode='kernel'))
 
