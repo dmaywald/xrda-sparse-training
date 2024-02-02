@@ -75,6 +75,7 @@ def main():
       # Calculate train accuracy
       _, predicted = torch.max(outputs.data, 1)
       total += labels.size(0)
+      print(total)
       correct += (predicted == labels).sum()
 
     train_acc = correct
