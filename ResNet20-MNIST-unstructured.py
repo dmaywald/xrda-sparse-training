@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Feb  2 20:28:46 2024
+
+@author: Owner
+"""
+
 import argparse
 import os
 import math
@@ -33,7 +40,7 @@ model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR-10 Training')
+parser = argparse.ArgumentParser(description='PyTorch MNIST Training')
 parser.add_argument('--data', metavar='DIR', default='../../data/',
                     help='path to dataset')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
@@ -84,6 +91,7 @@ best_prec1 = 0
 def main():
     global args, best_prec1
     args = parser.parse_args()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")  
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -117,16 +125,28 @@ def main():
         model = models.__dict__[args.arch]()
 
     if args.gpu is not None:
-        model = model.cuda(args.gpu)
+        if device.type == 'cpu':
+            model = model.cpu()
+        else:
+            model = model.cuda(args.gpu)
     elif args.distributed:
-        model.cuda()
+        if device.type == 'cpu':
+            model.cpu()
+        else:
+            model.cuda()
         model = torch.nn.parallel.DistributedDataParallel(model)
     else:
         if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
             model.features = torch.nn.DataParallel(model.features)
-            model.cuda()
+            if device.type == 'cpu':
+                model.cpu()
+            else:
+                model.cuda()
         else:
-            model = torch.nn.DataParallel(model).cuda()
+            if device.type == 'cpu':
+                model = torch.nn.DataParallel(model).cpu()
+            else:
+                model = torch.nn.DataParallel(model).cuda()
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -139,33 +159,47 @@ def main():
 
     cudnn.benchmark = True
 
+    # # Data loading code
+    # transform_train = transforms.Compose(
+
+    #   [transforms.RandomCrop(28, padding=4),
+    #    transforms.RandomHorizontalFlip(),
+    #    transforms.ToTensor(),
+    #    transforms.Normalize((0.4914, 0.4822, 0.4465),
+    #                         (0.2023, 0.1994, 0.2010)),
+    #    transforms.RandomErasing(p= 0.5, scale=(0,0.4), ratio=(0.3, 3.3), ),])
+
+    # transform_val = transforms.Compose(
+    #   [transforms.ToTensor(),
+    #    transforms.Normalize((0.4914, 0.4822, 0.4465),
+    #                         (0.2023, 0.1994, 0.2010)),])
+    
     # Data loading code
     transform_train = transforms.Compose(
 
-      [transforms.RandomCrop(32, padding=4),
-       transforms.RandomHorizontalFlip(),
-       transforms.ToTensor(),
-       transforms.Normalize((0.4914, 0.4822, 0.4465),
-                            (0.2023, 0.1994, 0.2010)),
-       transforms.RandomErasing(p= 0.5, scale=(0,0.4), ratio=(0.3, 3.3), ),])
+      [transforms.RandomCrop(28, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.RandomErasing(p= 0.5, scale=(0,0.4), ratio=(0.3, 3.3), ),])
 
     transform_val = transforms.Compose(
-      [transforms.ToTensor(),
-       transforms.Normalize((0.4914, 0.4822, 0.4465),
-                            (0.2023, 0.1994, 0.2010)),])
+      [transforms.ToTensor(),])
 
-    trainset = torchvision.datasets.CIFAR10(root='./', train=True,
+    trainset = torchvision.datasets.MNIST(root='./', train=True,
                                           download=True, transform=transform_train)
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                             shuffle=True, num_workers=4)
 
-    valset = torchvision.datasets.CIFAR10(root='./', train=False,
+    valset = torchvision.datasets.MNIST(root='./', train=False,
                                          download=True, transform=transform_val)
     val_loader = torch.utils.data.DataLoader(valset, batch_size=128,
                                            shuffle=False, num_workers=2)
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    if device.type == 'cpu':
+        criterion = nn.CrossEntropyLoss().cpu()
+    else:
+        criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
     training_specs = CosineSpecs(max_iter=math.ceil(len(trainset) / args.batch_size) * args.epochs,
                                  init_step_size=args.lr, mom_ts=args.momentum, b_mom_ts=args.momentum, weight_decay=args.weight_decay)
@@ -206,7 +240,7 @@ def main():
             'optimizer': optimizer.state_dict(),
         }, is_best, checkpoint=args.save, args=args)
 
-        with open(os.path.join(args.save, 'resnet20_cifar10_results_lr%.4f_lam%.8f_mom%.6f.txt' % (args.lr, args.lam, args.momentum)), "a+") as text_file:
+        with open(os.path.join(args.save, 'model_data/resnet20_mnist_results_lr%.4f_lam%.8f_mom%.6f.txt' % (args.lr, args.lam, args.momentum)), "a+") as text_file:
             text_file.write(str(epoch + 1) + ' ' + '%.3f' % (loss.detach().cpu().numpy()) +
                             ' ' + '%.2f' % (prec1_train.detach().cpu().numpy()) +
                             ' ' + '%.2f' % (prec1.detach().cpu().numpy()) +
@@ -239,7 +273,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         if args.gpu is not None:
             input = input.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
+            
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        if device.type == 'cpu':
+            target = target.cpu()
+        else:
+            target = target.cuda(args.gpu, non_blocking=True)
 
         # compute output
         output = model(input)
@@ -277,7 +316,7 @@ def validate(val_loader, model, criterion):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
-
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # switch to evaluate mode
     model.eval()
 
@@ -286,7 +325,10 @@ def validate(val_loader, model, criterion):
         for i, (input, target) in enumerate(val_loader):
             if args.gpu is not None:
                 input = input.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
+            if device.type == 'cpu':
+                target = target.cpu
+            else:
+                target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
             output = model(input)
@@ -318,13 +360,13 @@ def validate(val_loader, model, criterion):
 
 
 def save_checkpoint(state, is_best, checkpoint, args):
-    filename = 'resnet20_cifar10_checkpoint_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (
+    filename = 'model_data/resnet20_mnist_checkpoint_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (
         args.lr, args.lam, args.momentum)
     filepath = os.path.join(checkpoint, filename)
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(
-            checkpoint, 'resnet20_cifar10_model_best_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (args.lr, args.lam, args.momentum)))
+            checkpoint, 'model_data/resnet20_mnist_model_best_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (args.lr, args.lam, args.momentum)))
 
 
 def accuracy(output, target, topk=(1,)):
