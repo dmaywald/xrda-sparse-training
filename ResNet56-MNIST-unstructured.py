@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
 from torch.autograd import Variable
-from models import resnet56
+from models import mnist_resnet56
 from training_algorithms import xRDA
 from regularization import l1_prox
 from training_algorithms import CosineSpecs
@@ -22,7 +22,7 @@ from utils import test_accuracy
 
 def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")  
-    output_file = 'model_data/mnist_resnet56_sparse_model_cosine_1p3en6.dat'
+    output_file = 'results/model_data/resnet/mnist_resnet56_sparse_model_cosine_1p3en6.dat'
     batch_size = 128
     epoch_count = 60
     # transform_train = transforms.Compose(
@@ -42,7 +42,7 @@ def main():
     transform_train = transforms.Compose(
 
         [transforms.RandomCrop(28, padding=4),
-         transforms.RandomHorizontalFlip(),
+         # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST data
          transforms.ToTensor()])
 
     transform_val = transforms.Compose(
@@ -60,9 +60,9 @@ def main():
                                              shuffle=False, num_workers=2)
 
     if device.type == "cpu":
-        conv_net = resnet56().cpu()
+        conv_net = mnist_resnet56(num_classes = 10).cpu()
     else:
-        conv_net = resnet56().cuda()
+        conv_net = mnist_resnet56(num_classes = 10).cuda()
         
     conv_net.train()
     criterion = nn.CrossEntropyLoss()

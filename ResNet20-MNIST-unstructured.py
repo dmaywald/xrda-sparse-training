@@ -37,17 +37,17 @@ from utils import test_accuracy
 
 
 model_names = sorted(name for name in models.__dict__
-                     if name.islower() and not name.startswith("__")
+                     if name.islower() and not name.startswith("__") and name.startswith("mnist_")
                      and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch MNIST Training')
 parser.add_argument('--data', metavar='DIR', default='../../data/',
                     help='path to dataset')
-parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
+parser.add_argument('--arch', '-a', metavar='ARCH', default='mnist_resnet20',
                     choices=model_names,
                     help='model architecture: ' +
                     ' | '.join(model_names) +
-                    ' (default: resnet20)')
+                    ' (default: mnist_resnet20)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=1000, type=int, metavar='N',
@@ -177,13 +177,14 @@ def main():
     # Data loading code
     transform_train = transforms.Compose(
 
-      [transforms.RandomCrop(28, padding=4),
-        transforms.RandomHorizontalFlip(),
+      [transforms.RandomCrop(32, padding=4),
+        # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST data
         transforms.ToTensor(),
         transforms.RandomErasing(p= 0.5, scale=(0,0.4), ratio=(0.3, 3.3), ),])
 
     transform_val = transforms.Compose(
-      [transforms.ToTensor(),])
+      [transforms.Pad(2), # Padding to a 32 x 32 image so the output dimensions after convolution fits
+       transforms.ToTensor(),])
 
     trainset = torchvision.datasets.MNIST(root='./', train=True,
                                           download=True, transform=transform_train)
@@ -240,7 +241,7 @@ def main():
             'optimizer': optimizer.state_dict(),
         }, is_best, checkpoint=args.save, args=args)
 
-        with open(os.path.join(args.save, 'model_data/resnet20_mnist_results_lr%.4f_lam%.8f_mom%.6f.txt' % (args.lr, args.lam, args.momentum)), "a+") as text_file:
+        with open(os.path.join(args.save, 'model_data/resnet/resnet20_mnist_results_lr%.4f_lam%.8f_mom%.6f.txt' % (args.lr, args.lam, args.momentum)), "a+") as text_file:
             text_file.write(str(epoch + 1) + ' ' + '%.3f' % (loss.detach().cpu().numpy()) +
                             ' ' + '%.2f' % (prec1_train.detach().cpu().numpy()) +
                             ' ' + '%.2f' % (prec1.detach().cpu().numpy()) +
@@ -360,13 +361,13 @@ def validate(val_loader, model, criterion):
 
 
 def save_checkpoint(state, is_best, checkpoint, args):
-    filename = 'model_data/resnet20_mnist_checkpoint_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (
+    filename = 'model_data/resnet/resnet20_mnist_checkpoint_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (
         args.lr, args.lam, args.momentum)
     filepath = os.path.join(checkpoint, filename)
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(
-            checkpoint, 'model_data/resnet20_mnist_model_best_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (args.lr, args.lam, args.momentum)))
+            checkpoint, 'model_data/resnet/resnet20_mnist_model_best_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (args.lr, args.lam, args.momentum)))
 
 
 def accuracy(output, target, topk=(1,)):
@@ -378,10 +379,15 @@ def accuracy(output, target, topk=(1,)):
         _, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
         correct = pred.eq(target.view(1, -1).expand_as(pred))
-
+        
         res = []
         for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            # original code: 
+            # correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            # Produced error:  view size is not compatible with input tensor's size and stride (at least one dimension spans across two contiguous subspaces). Use .reshape(...) instead.
+            
+            # revised code: 
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 

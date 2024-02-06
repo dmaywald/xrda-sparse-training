@@ -69,6 +69,7 @@ def main():
       # forward + backward + optimize
       outputs = conv_net(inputs)
       loss = criterion(outputs, labels)
+      print(loss)
       loss.backward()
       optimizer.step()
 

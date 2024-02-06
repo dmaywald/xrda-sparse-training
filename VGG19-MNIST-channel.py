@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Feb  4 17:21:11 2024
+
+@author: Devon
+"""
+
 import argparse
 import os
 import math
@@ -17,33 +24,36 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+# import torchvision.models as models
 import models
 
 import torch.nn.functional as F
 import torchvision
 from torch.autograd import Variable
 from training_algorithms import xRDA
-from regularization import l1_prox
+from regularization import  l1_prox
 from training_algorithms import CosineSpecs
 from utils import test_accuracy
 
 
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+
 model_names = sorted(name for name in models.__dict__
-                     if name.islower() and not name.startswith("__")
+                     if name.islower() and not name.startswith("__") and name.startswith("mnist")
                      and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='PyTorch CIFAR-10 Training')
+parser = argparse.ArgumentParser(description='PyTorch MNIST Training')
 parser.add_argument('--data', metavar='DIR', default='../../data/',
                     help='path to dataset')
-parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
+parser.add_argument('--arch', '-a', metavar='ARCH', default='mnist_vgg19_bn',
                     choices=model_names,
                     help='model architecture: ' +
                     ' | '.join(model_names) +
-                    ' (default: resnet20)')
+                    ' (default: mnist_vgg19_bn)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=1000, type=int, metavar='N',
+parser.add_argument('--epochs', default=500, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -55,7 +65,7 @@ parser.add_argument('--momentum', default=9.5, type=float, metavar='M',
                     help='momentum times timescale (around 10)')
 parser.add_argument('--weight-decay', '--wd', default=5e-4, type=float,
                     metavar='W', help='weight decay (default: 5e-4)')
-parser.add_argument('--lam', default=2.8e-6, type=float, metavar='M',
+parser.add_argument('--lam', default=1e-8, type=float, metavar='M',
                     help='lambda')
 parser.add_argument('--print-freq', '-p', default=50, type=int,
                     metavar='N', help='print frequency (default: 10)')
@@ -75,7 +85,7 @@ parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
-parser.add_argument('--save', default='./results/', type=str,
+parser.add_argument('--save', default='./results/model_data/vgg/', type=str,
                     help='folder to save the results.')
 
 best_prec1 = 0
@@ -114,7 +124,7 @@ def main():
         model = models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        model = models.__dict__[args.arch]()
+        model = models.__dict__[args.arch](num_classes=10)
 
     if args.gpu is not None:
         model = model.cuda(args.gpu)
@@ -122,7 +132,7 @@ def main():
         model.cuda()
         model = torch.nn.parallel.DistributedDataParallel(model)
     else:
-        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+        if args.arch.startswith('alexnet') or args.arch.startswith('mnist_vgg'):
             model.features = torch.nn.DataParallel(model.features)
             model.cuda()
         else:
@@ -139,27 +149,38 @@ def main():
 
     cudnn.benchmark = True
 
+    # # Data loading code
+    # transform_train = transforms.Compose(
+
+    #   [transforms.RandomCrop(32, padding=4),
+    #    transforms.RandomHorizontalFlip(),
+    #    transforms.ToTensor(),
+    #    transforms.Normalize((0.4914, 0.4822, 0.4465),
+    #                         (0.2023, 0.1994, 0.2010))])
+
+    # transform_val = transforms.Compose(
+    #   [transforms.ToTensor(),
+    #    transforms.Normalize((0.4914, 0.4822, 0.4465),
+    #                         (0.2023, 0.1994, 0.2010))])
+    
+    
     # Data loading code
     transform_train = transforms.Compose(
 
       [transforms.RandomCrop(32, padding=4),
-       transforms.RandomHorizontalFlip(),
-       transforms.ToTensor(),
-       transforms.Normalize((0.4914, 0.4822, 0.4465),
-                            (0.2023, 0.1994, 0.2010)),
-       transforms.RandomErasing(p= 0.5, scale=(0,0.4), ratio=(0.3, 3.3), ),])
+        # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST data
+        transforms.ToTensor()])
 
     transform_val = transforms.Compose(
-      [transforms.ToTensor(),
-       transforms.Normalize((0.4914, 0.4822, 0.4465),
-                            (0.2023, 0.1994, 0.2010)),])
+      [transforms.Pad(2), # Padding to a 32 x 32 image so the output dimensions after convolution fits
+       transforms.ToTensor()])
 
-    trainset = torchvision.datasets.CIFAR10(root='./', train=True,
+    trainset = torchvision.datasets.MNIST(root='./', train=True,
                                           download=True, transform=transform_train)
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                             shuffle=True, num_workers=4)
 
-    valset = torchvision.datasets.CIFAR10(root='./', train=False,
+    valset = torchvision.datasets.MNIST(root='./', train=False,
                                          download=True, transform=transform_val)
     val_loader = torch.utils.data.DataLoader(valset, batch_size=128,
                                            shuffle=False, num_workers=2)
@@ -170,7 +191,7 @@ def main():
     training_specs = CosineSpecs(max_iter=math.ceil(len(trainset) / args.batch_size) * args.epochs,
                                  init_step_size=args.lr, mom_ts=args.momentum, b_mom_ts=args.momentum, weight_decay=args.weight_decay)
     optimizer = xRDA(model.parameters(), it_specs=training_specs,
-                     prox=l1_prox(lam=args.lam, maximum_factor=500, mode='normal'))
+                     prox=l1_prox(lam=args.lam, maximum_factor=500, mode='channel'))
 
     if args.evaluate:
         validate(val_loader, model, criterion)
@@ -206,7 +227,7 @@ def main():
             'optimizer': optimizer.state_dict(),
         }, is_best, checkpoint=args.save, args=args)
 
-        with open(os.path.join(args.save, 'resnet20_cifar10_results_lr%.4f_lam%.8f_mom%.6f.txt' % (args.lr, args.lam, args.momentum)), "a+") as text_file:
+        with open(os.path.join(args.save, 'vgg19_mnist_results_lr%.4f_lam%.8f_mom%.6f.txt' % (args.lr, args.lam, args.momentum)), "a+") as text_file:
             text_file.write(str(epoch + 1) + ' ' + '%.3f' % (loss.detach().cpu().numpy()) +
                             ' ' + '%.2f' % (prec1_train.detach().cpu().numpy()) +
                             ' ' + '%.2f' % (prec1.detach().cpu().numpy()) +
@@ -318,13 +339,13 @@ def validate(val_loader, model, criterion):
 
 
 def save_checkpoint(state, is_best, checkpoint, args):
-    filename = 'resnet20_cifar10_checkpoint_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (
+    filename = 'vgg19_mnist_checkpoint_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (
         args.lr, args.lam, args.momentum)
     filepath = os.path.join(checkpoint, filename)
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(
-            checkpoint, 'resnet20_cifar10_model_best_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (args.lr, args.lam, args.momentum)))
+            checkpoint, 'vgg19_mnist_model_best_lr%.4f_lam%.8f_mom%.6f.pth.tar' % (args.lr, args.lam, args.momentum)))
 
 
 def accuracy(output, target, topk=(1,)):
@@ -339,8 +360,12 @@ def accuracy(output, target, topk=(1,)):
 
         res = []
         for k in topk:
-            print(correct[:k])
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            # original code: 
+            # correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            # Produced error:  view size is not compatible with input tensor's size and stride (at least one dimension spans across two contiguous subspaces). Use .reshape(...) instead.
+            
+            # revised code: 
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 

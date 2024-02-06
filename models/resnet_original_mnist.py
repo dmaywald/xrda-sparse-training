@@ -1,6 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Feb  4 15:54:27 2024
+
+@author: Devon
+"""
+
 
 '''
-Implemented ResNet-s for CIFAR10 as described in paper [1].
+Implemented ResNet-s for MNIST as described in paper [1].
 The implementation and structure of this file is hugely influenced by [2]
 which is implemented for ImageNet and doesn't have option A for identity.
 Moreover, most of the implementations on the web is copy-paste from
@@ -8,12 +15,12 @@ torchvision's resnet and has wrong number of params.
 Proper ResNet-s for CIFAR10 (for fair comparision and etc.) has following
 number of layers and parameters:
 name      | layers | params
-ResNet20  |    20  | 0.27M
-ResNet32  |    32  | 0.46M
-ResNet44  |    44  | 0.66M
-ResNet56  |    56  | 0.85M
-ResNet110 |   110  |  1.7M
-ResNet1202|  1202  | 19.4m
+mnist_ResNet20  |    20  | 0.27M
+mnist_ResNet32  |    32  | 0.46M
+mnist_ResNet44  |    44  | 0.66M
+mnist_ResNet56  |    56  | 0.85M
+mnist_ResNet110 |   110  |  1.7M
+mnist_ResNet1202|  1202  | 19.4m
 which this implementation indeed has.
 Reference:
 [1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
@@ -29,7 +36,7 @@ import torch.nn.init as init
 
 from torch.autograd import Variable
 
-__all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
+__all__ = ['mnist_ResNet', 'mnist_resnet20', 'mnist_resnet32', 'mnist_resnet44', 'mnist_resnet56', 'mnist_resnet110', 'mnist_resnet1202']
 
 def _weights_init(m):
     classname = m.__class__.__name__
@@ -78,12 +85,12 @@ class BasicBlock(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10, in_dim=3):
-        super(ResNet, self).__init__()
+class mnist_ResNet(nn.Module):
+    def __init__(self, block, num_blocks, num_classes=10):
+        super(mnist_ResNet, self).__init__()
         self.in_planes = 16
 
-        self.conv1 = nn.Conv2d(in_dim, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
@@ -112,36 +119,29 @@ class ResNet(nn.Module):
         return out
 
 
-def resnet20():
-    return ResNet(BasicBlock, [3, 3, 3])
+def mnist_resnet20():
+    return mnist_ResNet(BasicBlock, [3, 3, 3])
 
 
-def resnet32():
-    return ResNet(BasicBlock, [5, 5, 5])
+def mnist_resnet32():
+    return mnist_ResNet(BasicBlock, [5, 5, 5])
 
 
-def resnet44():
-    return ResNet(BasicBlock, [7, 7, 7])
-
-### Original Resnet56 Model 
-# def resnet56():
-#     return ResNet(BasicBlock, [9, 9, 9])
-
-# Attempted revised Resnet56 model
-def resnet56(**kwargs):
-    """Constructs a ResNet-56 model.
-
-    """
-    model = ResNet(BasicBlock, [9, 9, 9], **kwargs)
-
-    return model
-
-def resnet110():
-    return ResNet(BasicBlock, [18, 18, 18])
+def mnist_resnet44():
+    return mnist_ResNet(BasicBlock, [7, 7, 7])
 
 
-def resnet1202():
-    return ResNet(BasicBlock, [200, 200, 200])
+def mnist_resnet56():
+    return mnist_ResNet(BasicBlock, [9, 9, 9])
+
+
+
+def mnist_resnet110():
+    return mnist_ResNet(BasicBlock, [18, 18, 18])
+
+
+def mnist_resnet1202():
+    return mnist_ResNet(BasicBlock, [200, 200, 200])
 
 
 def test(net):
@@ -156,7 +156,7 @@ def test(net):
 
 if __name__ == "__main__":
     for net_name in __all__:
-        if net_name.startswith('resnet'):
+        if net_name.startswith('mnist_resnet'):
             print(net_name)
             test(globals()[net_name]())
             print()

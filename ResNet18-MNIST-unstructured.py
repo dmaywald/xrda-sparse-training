@@ -6,6 +6,8 @@ Created on Thu Feb  1 18:14:38 2024
 """
 
 import os
+print(os.getcwd())
+
 import time
 import torch
 import torch.nn as nn
@@ -13,7 +15,7 @@ import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
 from torch.autograd import Variable
-from models import resnet18
+from models import mnist_resnet18
 from training_algorithms import xRDA
 from regularization import  l1_prox
 from training_algorithms import IterationSpecs
@@ -21,7 +23,7 @@ from utils import test_accuracy
 
 def main():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    output_file = 'model_data/mnist_resnet18_sparse_model.dat'
+    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
 
     # transform_train = transforms.Compose(
   
@@ -60,9 +62,9 @@ def main():
                                              shuffle=False, num_workers=2)
   
     if device.type == "cpu":
-        conv_net = resnet18(num_classes=10, in_dim = 1).cpu()
+        conv_net = mnist_resnet18(num_classes=10).cpu()
     else:
-        conv_net = resnet18(num_classes=10, in_dim = 1).cuda()
+        conv_net = mnist_resnet18(num_classes=10).cuda()
       
     conv_net.train()
     criterion = nn.CrossEntropyLoss()
@@ -140,5 +142,6 @@ def main():
 
 if __name__ == '__main__':
     t0 = time.time()
-    main()
+    # main()
+    print(os.getcwd())
     print(time.time() - t0)

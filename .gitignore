@@ -157,6 +157,9 @@ MNIST/
 *.gz
 model_data/
 cifar-10-batches-py/
+cifar-100-python/
+cifar-10-batches-py/
+results/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
