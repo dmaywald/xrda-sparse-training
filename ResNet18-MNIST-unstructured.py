@@ -17,11 +17,14 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 from models import mnist_resnet18
 from training_algorithms import xRDA
-from regularization import  l1_prox
+from regularization import l1_prox
 from training_algorithms import IterationSpecs
 from utils import test_accuracy
+from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
+from hyperparameter_optimization import Bayesian_Optimizer
 
-def main():
+
+def progress_dataframe(train_batch_size = 128, subset_Data = None):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
 
@@ -38,47 +41,68 @@ def main():
     #     [transforms.ToTensor(),
     #      transforms.Normalize((0.4914, 0.4822, 0.4465),
     #                           (0.2023, 0.1994, 0.2010))])
+
     
-    train_batch_size = 128 # Originally 128
-  
-    transform_train = transforms.Compose(
-
-        [transforms.RandomCrop(28, padding=4),
-         # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
-         transforms.ToTensor()])
-
-    transform_val = transforms.Compose(
-
-        [transforms.ToTensor()])
+    if subset_Data is not None:
+        transform_train = transforms.Compose(
+            [transforms.RandomCrop(28, padding=4),
+             # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
+             transforms.ToTensor()])
+        
+        transform_val = transforms.Compose(
+            [transforms.ToTensor()])
+        
+        mnist_train_dataset = torchvision.datasets.MNIST(root='./', train=True, download=True, transform=transform_train)
+        mnist_val_dataset = torchvision.datasets.MNIST(root='./', train=False, download=True, transform=transform_train)
+        
+        # Define the desired subset size
+        subset_train_size = subset_Data
+        subset_val_size = np.ceil(len(mnist_val_dataset) / (len(mnist_train_dataset)/subset_train_size))
+        
+        # Create a subset of the MNIST dataset for analysis purposes
+        subset_train_indices = torch.randperm(len(mnist_train_dataset))[:subset_train_size]
+        subset_val_indices = torch.randperm(len(mnist_val_dataset))[:subset_val_size]
+        
+        
+        trainset = Subset(mnist_train_dataset, subset_train_indices)
+        testset = Subset(mnist_val_dataset, subset_val_indices)        
+        
+    if subset_Data is None:
+        transform_train = transforms.Compose(
     
-    trainset = torchvision.datasets.MNIST(root='./', train=True,
-                                          download=True, transform=transform_train)
+            [transforms.RandomCrop(28, padding=4),
+             # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
+             transforms.ToTensor()])
+    
+        transform_val = transforms.Compose(
+    
+            [transforms.ToTensor()])
+        
+        trainset = torchvision.datasets.MNIST(root='./', train=True,
+                                              download=True, transform=transform_train)
+    
+        testset = torchvision.datasets.MNIST(root='./', train=False,
+                                             download=True, transform=transform_val)
+
+        
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=train_batch_size,
-                                              shuffle=True, num_workers=4)
-
-    testset = torchvision.datasets.MNIST(root='./', train=False,
-                                         download=True, transform=transform_val)
+                                                  shuffle=True, num_workers=4)
     testloader = torch.utils.data.DataLoader(testset, batch_size=32,
-                                             shuffle=False, num_workers=2)
-  
-    if device.type == "cpu":
-        conv_net = mnist_resnet18(num_classes=10).cpu()
-    else:
-        conv_net = mnist_resnet18(num_classes=10).cuda()
+                                                 shuffle=False, num_workers=2)
+        
+    conv_net = mnist_resnet18(num_classes = 10).to(device)
       
     conv_net.train()
     criterion = nn.CrossEntropyLoss()
 
     init_lr = 1.0
-    lam = 1e-6
+    lam = 5e-4 # orignially 1e-6
     av_param = 0.0
     training_specs = IterationSpecs(
         step_size=init_lr, mom_ts=9.5, b_mom_ts=9.5, weight_decay=5e-4, av_param=av_param)
     
     optimizer = xRDA(conv_net.parameters(), it_specs=training_specs,
                      prox=l1_prox(lam=lam, maximum_factor=500))
-    
-
     
     lr = init_lr
     prev_train_acc = 0
@@ -107,13 +131,9 @@ def main():
             # get the inputs
             inputs, labels = data
             
-            if device.type == "cpu":
-                inputs = Variable(inputs).cpu()
-                labels = Variable(labels).cpu()
-            else:
-                inputs = Variable(inputs).cuda()
-                labels = Variable(labels).cuda()
-
+            inputs = Variable(inputs).to(device)
+            labels = Variable(labels).to(device)
+            
           # zero the parameter gradients
             optimizer.zero_grad()
 
@@ -138,20 +158,22 @@ def main():
             progress_df.b_mom_ts[progress_df_idx] = training_specs.b_mom_ts
             progress_df.weight_decay[progress_df_idx] = training_specs.wd
             progress_df.av_param[progress_df_idx] = training_specs.av
+            print(1 - sparsity/init_sparsity)
             
             progress_df_idx += 1
             
         train_acc = correct
         
         accuracy = 10000 * correct / total
+        sparsity = 10000 * (1- sparsity/init_sparsity)
         if device.type == "cpu":
             t_accuracy = test_accuracy(testloader, conv_net, cuda=False)
         else:
             t_accuracy = test_accuracy(testloader, conv_net, cuda=True)
         
         progress_df.Epoch_Final_Test_acc[(epoch)*len_per_epoch:(epoch+1)*len_per_epoch] = t_accuracy.item()/100
-        print('Epoch:%d %% Training Accuracy: %d.%02d %% Test Accuracy: %d.%02d %% Sparsity: %d' % (epoch+1,
-                                accuracy / 100, accuracy % 100, t_accuracy / 100, t_accuracy % 100, sparsity/init_sparsity))
+        print('Epoch:%d %% Training Accuracy: %d.%02d %% Test Accuracy: %d.%02d %% \nSparsity Percentage: %d.%02d %%' % (epoch+1,
+                                accuracy / 100, accuracy % 100, t_accuracy / 100, t_accuracy % 100, sparsity/100, sparsity % 100))
 
         # At about every 4 epochs, halve step size and double averaging.
         if epoch in [6, 10, 14, 18, 22, 26, 30, 34, 38, 42]:
@@ -171,8 +193,84 @@ def main():
 
     return progress_df
 
+
+def bayes_opt_test(batch_size = 128, subset_Data = None):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
+
+    # transform_train = transforms.Compose(
+  
+    #     [transforms.RandomCrop(32, padding=4),
+    #      transforms.RandomHorizontalFlip(),
+    #      transforms.ToTensor(),
+    #      transforms.Normalize((0.4914, 0.4822, 0.4465),
+    #                           (0.2023, 0.1994, 0.2010))])
+  
+    # transform_val = transforms.Compose(
+  
+    #     [transforms.ToTensor(),
+    #      transforms.Normalize((0.4914, 0.4822, 0.4465),
+    #                           (0.2023, 0.1994, 0.2010))])
+
+    
+    if subset_Data is not None:
+        transform_train = transforms.Compose(
+            [transforms.RandomCrop(28, padding=4),
+             # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
+             transforms.ToTensor()])
+        
+        transform_val = transforms.Compose(
+            [transforms.ToTensor()])
+        
+        mnist_train_dataset = torchvision.datasets.MNIST(root='./', train=True, download=True, transform=transform_train)
+        mnist_val_dataset = torchvision.datasets.MNIST(root='./', train=False, download=True, transform=transform_train)
+        
+        # Define the desired subset size
+        subset_train_size = subset_Data
+        subset_val_size = np.ceil(len(mnist_val_dataset) / (len(mnist_train_dataset)/subset_train_size))
+        
+        # Create a subset of the MNIST dataset for analysis purposes
+        subset_train_indices = torch.randperm(len(mnist_train_dataset))[:subset_train_size]
+        subset_val_indices = torch.randperm(len(mnist_val_dataset))[:subset_val_size]
+        
+        
+        trainset = Subset(mnist_train_dataset, subset_train_indices)
+        testset = Subset(mnist_val_dataset, subset_val_indices)        
+        
+    if subset_Data is None:
+        transform_train = transforms.Compose(
+    
+            [transforms.RandomCrop(28, padding=4),
+             # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
+             transforms.ToTensor()])
+    
+        transform_val = transforms.Compose(
+    
+            [transforms.ToTensor()])
+        
+        trainset = torchvision.datasets.MNIST(root='./', train=True,
+                                              download=True, transform=transform_train)
+    
+        testset = torchvision.datasets.MNIST(root='./', train=False,
+                                             download=True, transform=transform_val)
+
+        
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
+                                                  shuffle=True, num_workers=4)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
+                                                 shuffle=False, num_workers=2)
+        
+    conv_net = mnist_resnet18(num_classes = 10).to(device)
+      
+    criterion = nn.CrossEntropyLoss()
+    k_folds = 2
+    max_evals = 5
+    num_epoch = 5
+    
+    
+    
 if __name__ == '__main__':
     t0 = time.time()
-    progress_df = main()
+    progress_df = ()
     # print(os.getcwd())
     print(time.time() - t0)
