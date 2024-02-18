@@ -21,7 +21,7 @@ from regularization import l1_prox
 from training_algorithms import IterationSpecs
 from utils import test_accuracy
 from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
-from hyperparameter_optimization import Bayesian_Optimizer
+import hyperparameter_optimization as hpo
 
 
 def progress_dataframe(train_batch_size = 128, subset_Data = None):
@@ -57,7 +57,7 @@ def progress_dataframe(train_batch_size = 128, subset_Data = None):
         
         # Define the desired subset size
         subset_train_size = subset_Data
-        subset_val_size = np.ceil(len(mnist_val_dataset) / (len(mnist_train_dataset)/subset_train_size))
+        subset_val_size = int(np.ceil(len(mnist_val_dataset) / (len(mnist_train_dataset)/subset_train_size)))
         
         # Create a subset of the MNIST dataset for analysis purposes
         subset_train_indices = torch.randperm(len(mnist_train_dataset))[:subset_train_size]
@@ -110,8 +110,11 @@ def progress_dataframe(train_batch_size = 128, subset_Data = None):
     num_epoch = 50 # originally 500
     init_sparsity = sum([torch.nonzero(x).size()[0] for x in list(conv_net.parameters())])
     
-    # DataFrame to keep track of progress, will contain
-    # Epoch, loss, Training Accuracy, Testing Accuracy, Sparsity, step_size, mom_ts, b_mom_ts, weight_decay, av_param
+    # DataFrame to keep track of progress, will contain:
+    # Epoch, loss per step, Training Accuracy per step, Testing Accuracy per end of Epoch,
+    # Sparsity per step, step_size per epoch, mom_ts per epoch, b_mom_ts per epoch,
+    # weight_decay per epoch, av_param per epoch
+    
     len_per_epoch = sum(1 for _ in trainloader.batch_sampler)
     df_len = num_epoch*len_per_epoch
     df_col_names = ['Epoch', 'loss', 'Train_acc', 'Epoch_Final_Test_acc', 'Sparsity',
@@ -194,83 +197,92 @@ def progress_dataframe(train_batch_size = 128, subset_Data = None):
     return progress_df
 
 
-def bayes_opt_test(batch_size = 128, subset_Data = None):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
+# def bayes_opt_test(batch_size = 128, subset_Data = None):
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
 
-    # transform_train = transforms.Compose(
+# transform_train = transforms.Compose(
   
-    #     [transforms.RandomCrop(32, padding=4),
-    #      transforms.RandomHorizontalFlip(),
-    #      transforms.ToTensor(),
-    #      transforms.Normalize((0.4914, 0.4822, 0.4465),
-    #                           (0.2023, 0.1994, 0.2010))])
+#     [transforms.RandomCrop(32, padding=4),
+#      transforms.RandomHorizontalFlip(),
+#      transforms.ToTensor(),
+#      transforms.Normalize((0.4914, 0.4822, 0.4465),
+#                           (0.2023, 0.1994, 0.2010))])
   
-    # transform_val = transforms.Compose(
+# transform_val = transforms.Compose(
   
-    #     [transforms.ToTensor(),
-    #      transforms.Normalize((0.4914, 0.4822, 0.4465),
-    #                           (0.2023, 0.1994, 0.2010))])
+#     [transforms.ToTensor(),
+#      transforms.Normalize((0.4914, 0.4822, 0.4465),
+#                           (0.2023, 0.1994, 0.2010))])
+
+subset_Data = 1024
+batch_size = 128
+
+if subset_Data is not None:
+    transform_train = transforms.Compose(
+        [transforms.RandomCrop(28, padding=4),
+         # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
+         transforms.ToTensor()])
+    
+    transform_val = transforms.Compose(
+        [transforms.ToTensor()])
+    
+    mnist_train_dataset = torchvision.datasets.MNIST(root='./', train=True, download=True, transform=transform_train)
+    mnist_val_dataset = torchvision.datasets.MNIST(root='./', train=False, download=True, transform=transform_train)
+    
+    # Define the desired subset size
+    subset_train_size = subset_Data
+    subset_val_size = int(np.ceil(len(mnist_val_dataset) / (len(mnist_train_dataset)/subset_train_size)))
+    
+    # Create a subset of the MNIST dataset for analysis purposes
+    subset_train_indices = torch.randperm(len(mnist_train_dataset))[:subset_train_size]
+    subset_val_indices = torch.randperm(len(mnist_val_dataset))[:subset_val_size]
+    
+    
+    trainset = Subset(mnist_train_dataset, subset_train_indices)
+    testset = Subset(mnist_val_dataset, subset_val_indices)        
+    
+if subset_Data is None:
+    transform_train = transforms.Compose(
+
+        [transforms.RandomCrop(28, padding=4),
+         # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
+         transforms.ToTensor()])
+
+    transform_val = transforms.Compose(
+
+        [transforms.ToTensor()])
+    
+    trainset = torchvision.datasets.MNIST(root='./', train=True,
+                                          download=True, transform=transform_train)
+
+    testset = torchvision.datasets.MNIST(root='./', train=False,
+                                         download=True, transform=transform_val)
 
     
-    if subset_Data is not None:
-        transform_train = transforms.Compose(
-            [transforms.RandomCrop(28, padding=4),
-             # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
-             transforms.ToTensor()])
-        
-        transform_val = transforms.Compose(
-            [transforms.ToTensor()])
-        
-        mnist_train_dataset = torchvision.datasets.MNIST(root='./', train=True, download=True, transform=transform_train)
-        mnist_val_dataset = torchvision.datasets.MNIST(root='./', train=False, download=True, transform=transform_train)
-        
-        # Define the desired subset size
-        subset_train_size = subset_Data
-        subset_val_size = np.ceil(len(mnist_val_dataset) / (len(mnist_train_dataset)/subset_train_size))
-        
-        # Create a subset of the MNIST dataset for analysis purposes
-        subset_train_indices = torch.randperm(len(mnist_train_dataset))[:subset_train_size]
-        subset_val_indices = torch.randperm(len(mnist_val_dataset))[:subset_val_size]
-        
-        
-        trainset = Subset(mnist_train_dataset, subset_train_indices)
-        testset = Subset(mnist_val_dataset, subset_val_indices)        
-        
-    if subset_Data is None:
-        transform_train = transforms.Compose(
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
+                                              shuffle=True, num_workers=4)
+testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
+                                             shuffle=False, num_workers=2)
     
-            [transforms.RandomCrop(28, padding=4),
-             # transforms.RandomHorizontalFlip(), # I don't think a horizontal flip is appropriate for the MNIST dataset
-             transforms.ToTensor()])
-    
-        transform_val = transforms.Compose(
-    
-            [transforms.ToTensor()])
-        
-        trainset = torchvision.datasets.MNIST(root='./', train=True,
-                                              download=True, transform=transform_train)
-    
-        testset = torchvision.datasets.MNIST(root='./', train=False,
-                                             download=True, transform=transform_val)
+model = mnist_resnet18(num_classes = 10).to(device)
+  
+criterion = nn.CrossEntropyLoss()
+k_folds = 3
+max_evals = 1
+num_epoch = 5
 
-        
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
-                                                  shuffle=True, num_workers=4)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
-                                                 shuffle=False, num_workers=2)
-        
-    conv_net = mnist_resnet18(num_classes = 10).to(device)
-      
-    criterion = nn.CrossEntropyLoss()
-    k_folds = 2
-    max_evals = 5
-    num_epoch = 5
-    
-    
-    
-if __name__ == '__main__':
-    t0 = time.time()
-    progress_df = ()
-    # print(os.getcwd())
-    print(time.time() - t0)
+space = hpo.parameter_spaces.ResNetParamSpace()
+
+
+
+
+best_params = hpo.bayesian_optimization.bayes_optimizer(space, max_evals, model, "resnet", criterion,
+                                                           k_folds, num_epoch, trainset, batch_size, device)
+
+
+# if __name__ == '__main__':
+#     t0 = time.time()
+#     progress_df = ()
+#     # print(os.getcwd())
+#     print(time.time() - t0)
