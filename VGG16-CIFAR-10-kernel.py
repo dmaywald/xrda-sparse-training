@@ -56,7 +56,7 @@ def main():
   init_lr = 1.0
   lam = 8e-7
   av_param = 0.0
-  training_specs = CosineSpecs(max_iter=math.ceil(len(trainset.indices) / batch_size) * epoch_count,
+  training_specs = CosineSpecs(max_iter=math.ceil(len(trainset) / batch_size) * epoch_count,
                                   init_step_size=init_lr, mom_ts=9.5, b_mom_ts=9.5, weight_decay=5e-4)
   optimizer = xRDA(conv_net.parameters(), it_specs=training_specs,
                    prox=l1_prox(lam=lam, maximum_factor=500, mode='kernel'))

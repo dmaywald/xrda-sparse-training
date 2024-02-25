@@ -169,7 +169,7 @@ def main():
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
-    training_specs = CosineSpecs(max_iter=math.ceil(len(trainset.indices) / args.batch_size) * args.epochs,
+    training_specs = CosineSpecs(max_iter=math.ceil(len(trainset) / args.batch_size) * args.epochs,
                                  init_step_size=args.lr, mom_ts=args.momentum, b_mom_ts=args.momentum, weight_decay=args.weight_decay)
     optimizer = xRDA(model.parameters(), it_specs=training_specs,
                      prox=l1_prox(lam=args.lam, maximum_factor=500, mode='channel'))
