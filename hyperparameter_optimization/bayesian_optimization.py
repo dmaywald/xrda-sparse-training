@@ -396,6 +396,7 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
     # accuracy_folds = []
     
     # Loop through each fold
+    # Parallelize with Dask?
     for fold, (train_idx, test_idx) in enumerate(train_test_set):
         # print(f"Fold {fold + 1}")
         # print("-------")
@@ -443,7 +444,7 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         
         # Train the model on the current fold
         for epoch in range(num_epoch):
-            # print(epoch)
+            print('Epoch:', epoch+1)
             train_func(model, criterion, optimizer, train_loader, epoch, device)
     
         # Evaluate the model on the test set
@@ -470,12 +471,12 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         
     ## count zero or zero-like? Without zero-like, torch.nonzero() and torch.count_nonzero() require
     ## ... a float of order 1e-46 to be considered 0
-    # sparsity = sum(torch.count_nonzero(x) for x in list(model.parameters()))
+    sparsity = sum(torch.count_nonzero(x) for x in list(model.parameters()))
     
     # Alternatively
     # See if there is a difference between this and the other count zero method. 
-    tol = 1e-8
-    sparsity = sum([len(x[torch.logical_or(x<=-tol, x>=tol)]) for x in list(model.parameters())])
+    # tol = 1e-8
+    # sparsity = sum([len(x[torch.logical_or(x<=-tol, x>=tol)]) for x in list(model.parameters())])
     
     # loss of random parameters is around 2, so sparity/num_params is of similar scale
     scale = 1.0
@@ -525,16 +526,20 @@ def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num
     -------
     best_params : dict
         dictionary of paramater values calculated by bayesian optimization
+        
+    bayes_trials: dict
+        dictionary of trials object providing optimization insight
 
     """
     # wrapper function of objective function with given bayesian optimizer parameters
     obj_function = partial(bayes_objective_function, model = model, model_type = model_type, criterion = criterion,
                            train_func = bayes_train, k_folds = k_folds, num_epoch = num_epoch,
                            trainset = trainset, batch_size = batch_size, device = device, mode = mode)
+    bayes_trials = Trials()
     
     # call fmin on objective function to calculate best paramaters
     # return_argmin = False to return paramater values instead of list indices for parameters specified through list
     best_params = fmin(fn = obj_function, space = space, algo= tpe.suggest,
-                       max_evals= max_evals, trials = Trials(), return_argmin=False)
-    return best_params
+                       max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+    return best_params, bayes_trials
             

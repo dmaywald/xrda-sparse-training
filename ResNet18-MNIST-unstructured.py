@@ -24,12 +24,9 @@ from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
 import hyperparameter_optimization as hpo
 
 
-def progress_dataframe(params, train_batch_size = 128, subset_Data = None, num_epoch = 50):
+def progress_dataframe(params, model_output_file, progress_data_output_file, train_batch_size = 128, subset_Data = None, num_epoch = 50, ):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
-    
+
     if not os.path.exists('results/'):
         os.mkdir('results/')
        
@@ -45,8 +42,7 @@ def progress_dataframe(params, train_batch_size = 128, subset_Data = None, num_e
     if not os.path.exists('results/progress_data/resnet/'):
         os.mkdir('results/progress_data/resnet/')
     
-    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
-    progress_data_output_file = 'results/progress_data/resnet/mnist_resnet18_sparse_training_progress.csv'
+    
     # transform_train = transforms.Compose(
   
     #     [transforms.RandomCrop(32, padding=4),
@@ -114,7 +110,7 @@ def progress_dataframe(params, train_batch_size = 128, subset_Data = None, num_e
     conv_net.train()
     criterion = nn.CrossEntropyLoss()
 
-    init_lr = params['init_lr']
+    init_lr = 2.0 - params['init_lr']
     lam = params['lam'] # orignially 1e-6
     av_param = params['av_param']
     training_specs = IterationSpecs(
@@ -221,7 +217,7 @@ def progress_dataframe(params, train_batch_size = 128, subset_Data = None, num_e
       final_accuracy = test_accuracy(testloader, conv_net, cuda=True)
     print('Accuracy of the network on the 10000 test images: %d.%02d %%' %
           (final_accuracy / 100, final_accuracy % 100))
-    torch.save(conv_net, output_file)
+    torch.save(conv_net, model_output_file)
     
     progress_df.to_csv(progress_data_output_file, index = False)
 
@@ -231,10 +227,10 @@ def progress_dataframe(params, train_batch_size = 128, subset_Data = None, num_e
 
 
 
-def tune_parameters(params, train_batch_size = 128, subset_Data = None, k_folds = 1, max_evals = 40, num_epoch = 10):
+def tune_parameters(params_output_file, trials_output_file, train_batch_size = 128, subset_Data = None, k_folds = 1, max_evals = 40, num_epoch = 10):
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model.dat'
+   
     
     # transform_train = transforms.Compose(
       
@@ -316,13 +312,14 @@ def tune_parameters(params, train_batch_size = 128, subset_Data = None, k_folds 
     if not os.path.exists('results/bayes_opt_params/resnet/'):
         os.mkdir('results/bayes_opt_params/resnet/')
         
-    output_file = 'results/bayes_opt_params/resnet/mnist_resnet18.dat'
+    
 
 
-    best_params = hpo.bayesian_optimization.bayes_optimizer(space, max_evals, model, "resnet", criterion,
+    best_params, trials = hpo.bayesian_optimization.bayes_optimizer(space, max_evals, model, "resnet", criterion,
                                                                k_folds, num_epoch, trainset, train_batch_size, device)
-    torch.save(best_params, output_file)    
-    return best_params
+    torch.save(best_params, params_output_file)   
+    torch.save(trials, trials_output_file)
+    return best_params, trials
 
 
 if __name__ == '__main__':
@@ -330,14 +327,43 @@ if __name__ == '__main__':
 
     init_params = {
         'init_lr': 1.0, #1.0 by default
-        'lam': 1e-6, #1e-6 by default
+        'lam': 1.3e-6, #1.3e-6 by default
         'av_param': 0.0, # 0.0 by default
         'mom_ts': 9.5, # 9.5 by default
         'b_mom_ts': 9.5, # 9.5 by default
         'weight_decay': 5e-4 # 5e-4 by default
         }
     
-    # Use the following below to visualize necessary 'num_epoch' for bayesian optimization
-    progress_df = progress_dataframe(init_params, train_batch_size = 128, subset_Data = None, num_epoch=50)
+    
+    # model_output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model_init_params_.dat'
+    # progress_data_output_file = 'results/progress_data/resnet/mnist_resnet18_sparse_training_progress_init_params_.csv'
+    
+    # # Use the following below to visualize necessary 'num_epoch' for bayesian optimization
+    # progress_df = progress_dataframe(init_params, model_output_file= model_output_file, progress_data_output_file=progress_data_output_file,
+    #                                   train_batch_size = 128, subset_Data = None, num_epoch=30)
+    
+    # # From the dataframe above:
+    # #     Training accuracy reaches maximum 99% after 5 epochs on half of the dataset
+    # #     Testing accuracy reaches 99% after 8 epochs and 99.5% after 16 epochs
+    # #     Sparsity is 77% after 10 epochs and 86% after 20 epochs
+    # #     Cross Entropy Loss is minimized to [.003, .15] after 5 epochs
+    # # So 10 epochs on the full data set should be used for 'num_epoch' in bayesian optimization
+
+    params_output_file = 'results/bayes_opt_params/resnet/mnist_resnet18_sparse_model_bayes_params_small_data.dat'
+    trials_output_file = 'results/bayes_opt_params/resnet/mnist_resnet18_sparse_model_bayes_trials_small_data.dat'
+    
+    best_params, trials = tune_parameters(params_output_file, trials_output_file,
+                                          train_batch_size=128, subset_Data=2**13, k_folds=1, max_evals=100, num_epoch=5)
+    
+    best_params = torch.load(params_output_file)
+    trials = torch.load(trials_output_file)
+    
+    
+    model_output_file = 'results/model_data/resnet/mnist_resnet18_sparse_model_bayes_params_small_data.dat'
+    progress_data_output_file = 'results/progress_data/resnet/mnist_resnet18_sparse_training_progress_bayes_params_small_data.csv'
+    
+    progress_df = progress_dataframe(best_params, model_output_file= model_output_file, progress_data_output_file=progress_data_output_file,
+                                      train_batch_size = 128, subset_Data = None, num_epoch=50)
+    
     # print(os.getcwd())
     print(time.time() - t0)
