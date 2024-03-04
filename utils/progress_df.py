@@ -291,7 +291,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
       final_accuracy = test_accuracy(testloader, model, cuda=True)
       
     print('Accuracy of the network on the %d test images: %d.%02d %%' %
-          (len(testset), final_accuracy / 100, final_accuracy % 100))
+          (len(val_dataset), final_accuracy / 100, final_accuracy % 100))
     
     if model_output_file is not None:
         torch.save(model, model_output_file)

@@ -121,7 +121,7 @@ if __name__ == '__main__':
         av_param = best_params['av_param'])
     
     optimizer = xRDA(model.parameters(), it_specs=training_specs, 
-                     prox=l1_prox(lam=init_params['lam'], maximum_factor=500))
+                     prox=l1_prox(lam=best_params['lam'], maximum_factor=500))
     
     progress_df = progress_dataframe(model=model,
                                      params=best_params,
