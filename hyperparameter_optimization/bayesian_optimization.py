@@ -6,11 +6,12 @@ from hyperopt import fmin
 
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
+
 import math
 import numpy as np
 from scipy import stats
 from functools import partial
-# import pandas as pd
+import os
 
 import torch
 import torch.nn as nn
@@ -140,80 +141,6 @@ class xRDA(Optimizer):
   def set_it_specs(self, new_specs):
     self.it_specs = new_specs
     
-  def calc_loss(self, closure=None):
-    loss = 0
-    if closure is not None:
-      loss = closure()
-      
-    # Gather Parameters
-    step_size = self.it_specs.step_size(self.iteration)
-    print(self)
-
-    av = 0 # default value of the averaging parameter
-    try: # if it_specs provides a different value, use it
-      av = self.it_specs.av_param(self.iteration)
-    except AttributeError:
-      pass
-
-    weight_decay = 0 # default value of weight_decay
-    try:
-      weight_decay = self.it_specs.weight_decay(self.iteration)
-    except AttributeError:
-      pass
-
-    mom_ts = 0
-    try:
-      mom_ts = self.it_specs.momentum_time_scale(self.iteration)
-    except AttributeError:
-      pass
-
-    b_mom_ts = 0
-    try:
-      b_mom_ts = self.it_specs.backward_momentum_time_scale(self.iteration)
-    except AttributeError:
-      pass
-
-    for group in self.param_groups:
-      for p in group['params']:
-        if p.grad is None:
-          continue
-
-        state = self.state[p]
-        
-        dp = p.grad.data
-        print(dp)
-        dp.add_(weight_decay, p.data) # originally: dp.add_(weight_decay, p.data)
-        print(dp)
-        
-        if len(state) == 0:
-          if self.has_prox:
-            state['backward_step'] = self.prox.get_zero_params(p)
-            state['running_av'] = self.prox.get_zero_params(p)
-          state['p_temp'] = torch.clone(p).detach()
-          state['v'] = torch.zeros_like(p.data)
-
-        if self.has_prox:
-          running_av = self.prox.get_running_av(p)
-          state['running_av'].mul_(math.exp(-step_size / b_mom_ts)).add_(-math.expm1(-step_size / b_mom_ts), running_av)
-          backward_v = self.prox.calculate_backward_v(state['running_av'])
-          state['backward_step'] = av * state['backward_step'] + step_size * backward_v
-
-        # Average the pre and post proximal iterates
-        state['p_temp'].mul_(av).add_((1.0 - av),  p.data)
-
-        # Calculate the velocity.
-        state['v'].mul_(math.exp(-step_size / mom_ts)).add_(-math.expm1(-step_size / mom_ts), dp)
-
-        # Perform forward gradient step
-        state['p_temp'].add_(-step_size, state['v'].data)
-
-        # Copy the data in preparation for the backward step
-        p.data.copy_(state['p_temp'].data)
-
-        # Perform the backward step on each parameter group if it is available.
-        if self.has_prox:
-          self.prox.apply(p, state['backward_step'])
-    return loss
 
   def step(self, closure=None):
     loss = None
@@ -334,14 +261,14 @@ def bayes_train(model, criterion, optimizer, train_loader, epoch, device):
 
 
 def bayes_objective_function(params, model, model_type, criterion, train_func, k_folds,
-                             num_epoch, trainset, batch_size, device, mode = "normal"):
+                             num_epoch, trainset, batch_size, device, subset_Data, mode = "normal"):
     """
     
     
     
     Runtime Warning:
         
-        Runtime is O(len(trainset)/batch_size * k_folds * num_epochs)
+        Runtime is O((len(trainset)/batch_size) * k_folds * num_epochs)
 
     Parameters
     ----------
@@ -364,6 +291,8 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         Data set used to train model
     batch_size : int
         batch size used for training model
+    subset_Data : int
+        size of random subset of training data. Set to None for no subsetting.
     device : device
         device object of torch module
     mode : string, optional
@@ -379,16 +308,37 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
     """
     num_params = sum([x.numel() for x in list(model.parameters())])
     
+    if subset_Data is not None:
+
+        # Define the desired subset size
+        subset_train_size = subset_Data
+
+        
+        # Create a subset of the training dataset 
+        subset_train_indices = torch.randperm(len(trainset))[:subset_train_size]
+
+        
+        
+        trainset_sub = Subset(trainset, subset_train_indices)
+        # print(subset_train_indices)
+        del trainset # delete bloat (still carried by wrapper function, each subset is unique per bayes_opt iteration)
+        
+    if subset_Data is None:
+        # rename trainset arbitrarily to trainset_sub so same code can be used
+        trainset_sub = trainset
+        del trainset # delete bloat (still carried by wrapper function)
+         
+    
     if k_folds >= 2:
         # Initialize the k-fold cross validation
         kf = KFold(n_splits= k_folds, shuffle=True)
-        num_steps = (np.ceil((k_folds - 1)*len(trainset) / (k_folds*batch_size)) * num_epoch)
-        train_test_set = kf.split(trainset)
+        num_steps = (np.ceil((k_folds - 1)*len(trainset_sub) / (k_folds*batch_size)) * num_epoch)
+        train_test_set = kf.split(trainset_sub)
         
     else:
         # If k_folds = 1, then do train_test_split of train size .8        
-        train_test_set = [train_test_split(np.arange(len(trainset)), test_size=.2, shuffle=True)] # List of tuple of indices to enumerate through (only 1)
-        num_steps = np.ceil(.8*len(trainset)/batch_size)* num_epoch
+        train_test_set = [train_test_split(np.arange(len(trainset_sub)), test_size=.2, shuffle=True)] # List of tuple of indices to enumerate through (only 1)
+        num_steps = np.ceil(.8*len(trainset_sub)/batch_size)* num_epoch
         
     
     # DECISION: FOR OBJECTIVE FUNCTION, RETURN LOSS OR 1 - ACCURACY?
@@ -404,12 +354,12 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         # print(test_idx)
         # Define the data loaders for the current fold
         train_loader = DataLoader(
-            dataset=trainset,
+            dataset=trainset_sub,
             batch_size= batch_size,
             sampler=torch.utils.data.SubsetRandomSampler(train_idx),
         )
         test_loader = DataLoader(
-            dataset=trainset,
+            dataset=trainset_sub,
             batch_size= batch_size,
             sampler=torch.utils.data.SubsetRandomSampler(test_idx),
         )
@@ -426,12 +376,12 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         
         # Different models require different training specs and different prox        
 
-        if model_type == 'resnet':
+        if model_type.lower() == 'resnet':
             training_specs = IterationSpecs(step_size=init_lr, mom_ts=mom_ts,
                                             b_mom_ts=b_mom_ts, weight_decay=weight_decay, av_param=av_param)
             
             
-        if model_type == 'vgg' or model_type == 'densenet':
+        if model_type.lower() == 'vgg' or model_type.lower() == 'densenet':
 
             training_specs = CosineSpecs(max_iter= num_steps,
                 init_step_size= init_lr, mom_ts=mom_ts, b_mom_ts=b_mom_ts, weight_decay=weight_decay)
@@ -486,14 +436,14 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
 
 
 def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num_epoch,
-                    trainset, batch_size, device, mode = "normal"):
+                    trainset, batch_size, subset_Data, device, mode = "normal"):
     """
     
     
     
     Runtime Warning:
         
-        Runtime is O(len(trainset)/batch_size * k_folds * num_epochs * max_evals)
+        Runtime is O((len(trainset)/batch_size) * k_folds * num_epochs * max_evals)
 
     
     Parameters
@@ -517,6 +467,8 @@ def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num
         Data set used to train model
     batch_size : int
         batch size used for training model
+    subset_Data : int
+        size of random subset of training data. Set to None for no subsetting.
     device : device
         device object of torch module
     mode : string, optional
@@ -534,12 +486,132 @@ def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num
     # wrapper function of objective function with given bayesian optimizer parameters
     obj_function = partial(bayes_objective_function, model = model, model_type = model_type, criterion = criterion,
                            train_func = bayes_train, k_folds = k_folds, num_epoch = num_epoch,
-                           trainset = trainset, batch_size = batch_size, device = device, mode = mode)
+                           trainset = trainset, batch_size = batch_size, subset_Data = subset_Data,
+                           device = device, mode = mode)
+    
     bayes_trials = Trials()
     
     # call fmin on objective function to calculate best paramaters
     # return_argmin = False to return paramater values instead of list indices for parameters specified through list
     best_params = fmin(fn = obj_function, space = space, algo= tpe.suggest,
                        max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+    
     return best_params, bayes_trials
+
+
+# A tune parameters function will need to be a function of:
+    # params_output_file
+    # trials_output_file
+    # transform_train
+    # trainset (possibly just string of "mnist"/"cifar10"/"cifar100")
+    # model
+    # model_type ('resnet'/'vgg'/'densenet')
+    # param_space
+    # train_batch_size
+    # subset_Data
+    # k_folds
+    # max_evals
+    # num_epoch
             
+def tune_parameters(model, model_type, mode, space, params_output_file, trials_output_file, data, transform_train,
+                    train_batch_size = 128, subset_Data = None, k_folds = 1, num_epoch = 10, max_evals = 40):
+    """
+    
+    
+    Runtime Warning:
+        
+        Runtime is O((len(trainset)/train_batch_size) * k_folds * num_epochs * max_evals)
+        
+        
+    Parameters
+    ----------
+    model : nn.Module object
+        The Neural Network to be trained 
+    model_type : string
+        Type of model, used to keep track of training specs
+            Options:'resnet'/'vgg'/'densenet'
+    mode : string, optional
+        Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
+    space : dict
+        Dictionary of hp function objects defining the parameter space for bayesian optimization
+    params_output_file : string
+        Path and Name of tuned parameters. Set to None if parameters should not be saved
+    trials_output_file : string
+        path and name of bayes trials data. Set to None if trials should not be saved
+    data : string
+        Specify which dataset is being used. 
+            Options: 'mnist', 'cifar10', 'cifar100' 
+    transform_train : torchvision.transform object
+        transformation made to training data
+    train_batch_size : int, optional
+        Batch size for training. The default is 128.
+    subset_Data : int, optional
+        Size of random subset of training data. Set to None for no subsetting. The default is None.
+    k_folds : int, optional
+        Number of cross-validation folds used to train model and evaluate bayes_objective function.
+        Set to 1 to use an 80/20 train-test split instead. The default is 1.
+    num_epoch : int, optional
+        Number of epochs to train model for on each fold (or on 80% split of training data) when evaluating
+        bayes_objective function. The default is 10.
+    max_evals : int, optional
+        Number of iterations of bayes optimization. The default is 40.
+
+
+    Returns
+    -------
+    After tuning the tuning/hyperparameters by performing bayes optimization, function will save (optional) and return best_params
+    and trials
+    
+    best_params : dict
+        dictionary of paramater values calculated by bayesian optimization
+        
+    trials : dict
+        dictionary of trials object providing optimization insight
+
+    """
+    
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    
+    
+    if data == "mnist":
+        trainset = torchvision.datasets.MNIST(root='./', train=True, download=True, transform=transform_train)
+        
+    if data == "cifar10":
+        trainset = torchvision.datasets.CIFAR10(root='./', train=True, download=True, transform=transform_train)
+        
+    if data == "cifar100":
+        trainset = torchvision.datasets.CIFAR100(root='./', train=True, download=True, transform=transform_train)
+    
+    criterion = nn.CrossEntropyLoss()
+    
+    # If params_output_file has subdirectories, make sure those subdirectories exist  
+    if params_output_file is not None:
+        str_list = params_output_file.split("/")[:-1]
+        if len(str_list) > 0:  
+            temp_str = ''
+            for idx in range(len(str_list)):
+                temp_str = temp_str + str_list[idx]+'/'
+                if not os.path.exists(temp_str):
+                    os.mkdir(temp_str)
+                    
+    # If trials_output_file has subdirectories, make sure those subdirectories exist  
+    if trials_output_file is not None:
+        str_list = trials_output_file.split("/")[:-1]
+        if len(str_list) > 0:  
+            temp_str = ''
+            for idx in range(len(str_list)):
+                temp_str = temp_str + str_list[idx]+'/'
+                if not os.path.exists(temp_str):
+                    os.mkdir(temp_str)
+        
+    best_params, trials = bayes_optimizer(space=space, max_evals=max_evals, model=model, model_type=model_type,
+                                          criterion=criterion,k_folds=k_folds, num_epoch=num_epoch, trainset=trainset,
+                                          batch_size=train_batch_size, subset_Data=subset_Data, device=device, mode=mode)
+    
+    if params_output_file is not None:
+        torch.save(best_params, params_output_file)   
+    
+    if trials_output_file is not None:        
+        torch.save(trials, trials_output_file)
+        
+    return best_params, trials
