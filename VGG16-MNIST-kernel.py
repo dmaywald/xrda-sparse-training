@@ -27,7 +27,7 @@ if __name__ == '__main__':
 
     init_params = {
         'init_lr': 1.0, #1.0 by default
-        'lam': 2.5e-4, #1e-6 by default
+        'lam': 1e-6, #1e-6 by default
         'av_param': 0.0, # 0.0 by default
         'mom_ts': 9.5, # 9.5 by default
         'b_mom_ts': 9.5, # 9.5 by default
@@ -67,11 +67,11 @@ if __name__ == '__main__':
                      prox=l1_prox(lam=init_params['lam'], maximum_factor=500, mode='kernel'))
     
     
-    # model_output_file = 'results/model_data/vgg/mnist_vgg16_kernel_sparse_model_init_params_.dat'
-    # progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_kernel_sparse_training_progress_init_params_.csv'
+    model_output_file = 'results/model_data/vgg/mnist_vgg16_kernel_sparse_model_init_params_.dat'
+    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_kernel_sparse_training_progress_init_params.csv'
     
-    model_output_file = None
-    progress_data_output_file = None
+    # model_output_file = None
+    # progress_data_output_file = None
     
     # Use the following below to visualize necessary 'num_epoch' for bayesian optimization
     progress_df = progress_dataframe(model=model,
@@ -87,17 +87,17 @@ if __name__ == '__main__':
                                      subset_Data = subset_Data,
                                      num_epoch = num_epoch)
     # From the dataframe above:
-    #     Training accuracy reaches maximum X% after X epochs on full 
-    #     Testing accuracy reaches X% after X epochs and X% after X epochs
-    #     Sparsity is X% after X epochs and X% after X epochs
-    #     Cross Entropy Loss is minimized to [X, X] after X epochs
+    #     Training accuracy reaches maximum 99% after 10 epochs on full 
+    #     Testing accuracy reaches 99% after 15 epochs and 99.5% after 20 epochs
+    #     Sparsity is 97% after 10 epochs and 99% after 20 epochs
+    #     Cross Entropy Loss is minimized to [.004, .24] after 2 epochs
     
     
-    # params_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_params_small_data.dat'
-    # trials_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_trials_small_data.dat'
+    params_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_params.dat'
+    trials_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_trials.dat'
     
-    params_output_file = None
-    trials_output_file = None
+    # params_output_file = None
+    # trials_output_file = None
     model = mnist_vgg16_bn(num_classes=10).to(device)
     # Experimentally determined 1e-4 is too large for lambda
     space = VggParamSpace(expected_lam = 1e-6, prob_max_lam = 1e-4, prob_max = .01,
@@ -115,7 +115,7 @@ if __name__ == '__main__':
                                           train_batch_size=128,
                                           subset_Data= 2**13,
                                           k_folds=1,
-                                          num_epoch=10,
+                                          num_epoch=15,
                                           max_evals=100)
     
     best_params = torch.load(params_output_file)
@@ -125,8 +125,8 @@ if __name__ == '__main__':
     model = mnist_vgg16_bn(num_classes=10).to(device)
     
     
-    model_output_file = 'results/model_data/vgg/mnist_vgg16_uunstructured_sparse_model_bayes_params_small_data.dat'
-    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_unstructured_sparse_training_progress_bayes_params_small_data.csv'
+    model_output_file = 'results/model_data/vgg/mnist_vgg16_kernel_sparse_model_bayes_params.dat'
+    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_kernel_sparse_training_progress_bayes_params.csv'
     
     # model_output_file = None
     # progress_data_output_file = None
