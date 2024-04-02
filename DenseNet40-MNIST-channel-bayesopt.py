@@ -1,17 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Mar 31 15:15:14 2024
-
-@author: Owner
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Feb  3 15:57:20 2024
-
-@author: Devon
-"""
-
 import os
 import time
 import math
@@ -27,18 +13,18 @@ from regularization import  l1_prox
 from training_algorithms import CosineSpecs
 from utils import test_accuracy, progress_dataframe
 from hyperparameter_optimization import tune_parameters
-from hyperparameter_optimization import VggParamSpace
+from hyperparameter_optimization import DenseNetParamSpace
 
 if __name__ == '__main__':
     t0 = time.time()
 
     init_params = {
         'init_lr': 1.0, #1.0 by default
-        'lam': 1e-6, #1e-6 by default
+        'lam': 1e-5, #5e-8 by default
         'av_param': 0.0, # 0.0 by default
         'mom_ts': 9.5, # 9.5 by default
         'b_mom_ts': 9.5, # 9.5 by default
-        'weight_decay': 5e-4 # 5e-4 by default
+        'weight_decay': 1e-2 # 5e-4 by default
         }
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -46,8 +32,8 @@ if __name__ == '__main__':
     model = mnist_densenet().to(device)
     
     train_batch_size = 128
-    num_epoch = 30
-    subset_Data = None
+    num_epoch = 2
+    subset_Data = 2**13
     
     if subset_Data is not None:
         max_iter = math.ceil(subset_Data/train_batch_size) * num_epoch
@@ -74,11 +60,11 @@ if __name__ == '__main__':
                      prox=l1_prox(lam=init_params['lam'], maximum_factor=500, mode='channel'))
     
     
-    model_output_file = 'results/model_data/vgg/mnist_densenet_channel_sparse_model_init_params_.dat'
-    progress_data_output_file = 'results/progress_data/vgg/mnist_densenet_channel_sparse_training_progress_init_params.csv'
+    # model_output_file = 'results/model_data/densenet/mnist_densenet_channel_sparse_model_init_params_.dat'
+    # progress_data_output_file = 'results/progress_data/densenet/mnist_densenet_channel_sparse_training_progress_init_params.csv'
     
-    # model_output_file = None
-    # progress_data_output_file = None
+    model_output_file = None
+    progress_data_output_file = None
     
     # Use the following below to visualize necessary 'num_epoch' for bayesian optimization
     progress_df = progress_dataframe(model=model,
@@ -94,26 +80,26 @@ if __name__ == '__main__':
                                      subset_Data = subset_Data,
                                      num_epoch = num_epoch)
     # From the dataframe above:
-    #     Training accuracy reaches maximum 99% after 10 epochs on full 
-    #     Testing accuracy reaches 99% after 15 epochs and 99.5% after 20 epochs
-    #     Sparsity is 97% after 10 epochs and 99% after 20 epochs
-    #     Cross Entropy Loss is minimized to [.004, .24] after 2 epochs
+    #     Training accuracy reaches maximum 97-99% after 10 epochs on full 
+    #     Testing accuracy reaches 96% after 15 epochs and 98% after 20 epochs
+    #     Sparsity is 96% after 10 epochs and 97% after 20 epochs
+    #     Cross Entropy Loss is minimized to [.03, .3] after 10 epochs
     
     
-    params_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_params.dat'
-    trials_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_trials.dat'
+    params_output_file = 'results/bayes_opt_params/densenet/mnist_densenet_channel_sparse_model_bayes_params.dat'
+    trials_output_file = 'results/bayes_opt_params/densenet/mnist_densenet_channel_sparse_model_bayes_trials.dat'
     
     # params_output_file = None
     # trials_output_file = None
-    model = mnist_vgg16_bn(num_classes=10).to(device)
-    # Experimentally determined 1e-4 is too large for lambda
-    space = VggParamSpace(expected_lam = 1e-6, prob_max_lam = 1e-4, prob_max = .01,
+    model =  mnist_densenet().to(device)
+    # Experimentally determined 5e-5 is too large for lambda
+    space = DenseNetParamSpace(expected_lam = 5e-8, max_lam = 5e-5, prob_max_lam = .01,
                   init_lr_low = 0, init_lr_high = math.log(2), av_low = 0, av_high = 1,
                   mom_ts = 9.5, b_mom_ts = 9.5)
     
     best_params, trials = tune_parameters(model=model,
-                                          model_type = 'vgg',
-                                          mode = 'kernel',
+                                          model_type = 'densenet',
+                                          mode = 'channel',
                                           space = space,
                                           params_output_file = params_output_file,
                                           trials_output_file = trials_output_file,
@@ -122,18 +108,17 @@ if __name__ == '__main__':
                                           train_batch_size=128,
                                           subset_Data= 2**13,
                                           k_folds=1,
-                                          num_epoch=15,
+                                          num_epoch=20,
                                           max_evals=100)
     
     best_params = torch.load(params_output_file)
     trials = torch.load(trials_output_file)
     
     
-    model = mnist_vgg16_bn(num_classes=10).to(device)
+    model = mnist_densenet().to(device)
     
-    
-    model_output_file = 'results/model_data/vgg/mnist_vgg16_kernel_sparse_model_bayes_params.dat'
-    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_kernel_sparse_training_progress_bayes_params.csv'
+    model_output_file = 'results/model_data/densenet/mnist_densenet_channel_sparse_model_bayes_params.dat'
+    progress_data_output_file = 'results/progress_data/densenet/mnist_densenet_channel_sparse_training_progress_bayes_params.csv'
     
     # model_output_file = None
     # progress_data_output_file = None

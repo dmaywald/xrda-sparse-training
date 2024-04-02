@@ -91,7 +91,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
         b_mom_ts per step,
         weight_decay per step,
         av_param per step
-
+        lamda per step
     """
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -185,12 +185,19 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     # DataFrame to keep track of progress, will contain:
     # Epoch, loss per step, Training Accuracy per step, Testing Accuracy per end of Epoch,
     # Sparsity per step, step_size per step, mom_ts per step, b_mom_ts per step,
-    # weight_decay per step, av_param per step
+    # weight_decay per step, av_param per step,( and lambda per step if available).
     
 
     df_len = num_epoch*len_per_epoch
-    df_col_names = ['Epoch', 'loss', 'Train_acc', 'Epoch_Final_Test_acc', 'Sparsity',
-                    'step_size', 'mom_ts', 'b_mom_ts', 'weight_decay', 'av_param']
+    
+    # if l1 prox is available, track lambda. Otherwise, do not track lambda
+    if optimizer.has_prox: 
+        df_col_names = ['Epoch', 'loss', 'Train_acc', 'Epoch_Final_Test_acc', 'Sparsity',
+                        'step_size', 'mom_ts', 'b_mom_ts', 'weight_decay', 'av_param', 'lam']
+        
+    if not optimizer.has_prox: 
+        df_col_names = ['Epoch', 'loss', 'Train_acc', 'Epoch_Final_Test_acc', 'Sparsity',
+                        'step_size', 'mom_ts', 'b_mom_ts', 'weight_decay', 'av_param']
     
     progress_df = pd.DataFrame(np.nan, index = [i for i in range(df_len)], columns= df_col_names)
     
@@ -249,6 +256,9 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
             progress_df.mom_ts[progress_df_idx] = training_specs.mom_ts
             progress_df.b_mom_ts[progress_df_idx] = training_specs.b_mom_ts
             progress_df.weight_decay[progress_df_idx] = training_specs.wd
+            
+            if optimizer.has_prox: # If l1 prox is available, update progress df with lambda
+                progress_df.lam[progress_df_idx] = optimizer.prox.lam
             
             try: # if training specs has av attribute, update progress_df
                 av_update = training_specs.av

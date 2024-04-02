@@ -85,7 +85,7 @@ if __name__ == '__main__':
     # params_output_file = None
     # trials_output_file = None
     
-    space = ResNetParamSpace(expected_lam = 1.3e-6, prob_max_lam = 5e-3, prob_max = .01,
+    space = ResNetParamSpace(expected_lam = 1.3e-6, max_lam = 5e-3, prob_max_lam = .01,
                  init_lr_low = 0, init_lr_high = np.log(2), av_low = 0, av_high = 1,
                  mom_ts = 9.5, b_mom_ts = 9.5)
     

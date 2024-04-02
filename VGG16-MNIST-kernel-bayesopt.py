@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Feb  3 18:23:49 2024
+Created on Sat Feb  3 15:57:20 2024
 
 @author: Devon
 """
@@ -64,11 +64,11 @@ if __name__ == '__main__':
                                  weight_decay=init_params['weight_decay'])
     
     optimizer = xRDA(model.parameters(), it_specs=training_specs, 
-                     prox=l1_prox(lam=init_params['lam'], maximum_factor=500))
+                     prox=l1_prox(lam=init_params['lam'], maximum_factor=500, mode='kernel'))
     
     
-    model_output_file = 'results/model_data/vgg/mnist_vgg16_unstructured_sparse_model_init_params_.dat'
-    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_unstructured_sparse_training_progress_init_params_.csv'
+    model_output_file = 'results/model_data/vgg/mnist_vgg16_kernel_sparse_model_init_params_.dat'
+    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_kernel_sparse_training_progress_init_params.csv'
     
     # model_output_file = None
     # progress_data_output_file = None
@@ -87,36 +87,36 @@ if __name__ == '__main__':
                                      subset_Data = subset_Data,
                                      num_epoch = num_epoch)
     # From the dataframe above:
-    #     Training accuracy reaches maximum 99% after 5 epochs on full 
-    #     Testing accuracy reaches 99% after 5 epochs and 99.5% after 18 epochs
-    #     Sparsity is 95% after 10 epochs and 98% after 20 epochs
-    #     Cross Entropy Loss is minimized to [.003, .17] after 5 epochs
+    #     Training accuracy reaches maximum 99% after 10 epochs on full 
+    #     Testing accuracy reaches 99% after 15 epochs and 99.5% after 20 epochs
+    #     Sparsity is 97% after 10 epochs and 99% after 20 epochs
+    #     Cross Entropy Loss is minimized to [.004, .24] after 2 epochs
     
     
-    params_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_unstructured_sparse_model_bayes_params_small_data.dat'
-    trials_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_unstructured_sparse_model_bayes_trials_small_data.dat'
+    params_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_params.dat'
+    trials_output_file = 'results/bayes_opt_params/vgg/mnist_vgg16_kernel_sparse_model_bayes_trials.dat'
     
     # params_output_file = None
     # trials_output_file = None
     model = mnist_vgg16_bn(num_classes=10).to(device)
-    # # Experimentally determined 2.5e-4 is too large for lambda
-    # space = VggParamSpace(expected_lam = 1e-6, prob_max_lam = 2.5e-4, prob_max = .01,
-    #               init_lr_low = 0, init_lr_high = math.log(2), av_low = 0, av_high = 1,
-    #               mom_ts = 9.5, b_mom_ts = 9.5)
+    # Experimentally determined 1e-4 is too large for lambda
+    space = VggParamSpace(expected_lam = 1e-6, max_lam = 1e-4, prob_max_lam = .01,
+                  init_lr_low = 0, init_lr_high = math.log(2), av_low = 0, av_high = 1,
+                  mom_ts = 9.5, b_mom_ts = 9.5)
     
-    # best_params, trials = tune_parameters(model=model,
-    #                                       model_type = 'vgg',
-    #                                       mode = 'normal',
-    #                                       space = space,
-    #                                       params_output_file = params_output_file,
-    #                                       trials_output_file = trials_output_file,
-    #                                       data = 'mnist',
-    #                                       transform_train = transform_train,
-    #                                       train_batch_size=128,
-    #                                       subset_Data= 2**13,
-    #                                       k_folds=1,
-    #                                       num_epoch=10,
-    #                                       max_evals=100)
+    best_params, trials = tune_parameters(model=model,
+                                          model_type = 'vgg',
+                                          mode = 'kernel',
+                                          space = space,
+                                          params_output_file = params_output_file,
+                                          trials_output_file = trials_output_file,
+                                          data = 'mnist',
+                                          transform_train = transform_train,
+                                          train_batch_size=128,
+                                          subset_Data= 2**13,
+                                          k_folds=1,
+                                          num_epoch=15,
+                                          max_evals=100)
     
     best_params = torch.load(params_output_file)
     trials = torch.load(trials_output_file)
@@ -125,8 +125,8 @@ if __name__ == '__main__':
     model = mnist_vgg16_bn(num_classes=10).to(device)
     
     
-    model_output_file = 'results/model_data/vgg/mnist_vgg16_uunstructured_sparse_model_bayes_params_small_data.dat'
-    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_unstructured_sparse_training_progress_bayes_params_small_data.csv'
+    model_output_file = 'results/model_data/vgg/mnist_vgg16_kernel_sparse_model_bayes_params.dat'
+    progress_data_output_file = 'results/progress_data/vgg/mnist_vgg16_kernel_sparse_training_progress_bayes_params.csv'
     
     # model_output_file = None
     # progress_data_output_file = None
