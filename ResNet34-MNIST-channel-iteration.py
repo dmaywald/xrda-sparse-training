@@ -131,11 +131,11 @@ if __name__ == '__main__':
     
     
     training_specs = IterationSpecs(
-        step_size = 2 - init_params['init_lr'], 
-        mom_ts = init_params['mom_ts'], 
-        b_mom_ts = init_params['b_mom_ts'], 
-        weight_decay = init_params['weight_decay'], 
-        av_param = init_params['av_param'])
+        step_size = 2 - best_params['init_lr'], 
+        mom_ts = best_params['mom_ts'], 
+        b_mom_ts = best_params['b_mom_ts'], 
+        weight_decay = best_params['weight_decay'], 
+        av_param = best_params['av_param'])
     
     optimizer = xRDA(model.parameters(), it_specs=training_specs, 
                      prox=l1_prox(lam=best_params['lam'], maximum_factor=500, mode = mode))
