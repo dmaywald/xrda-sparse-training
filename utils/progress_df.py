@@ -185,7 +185,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     # DataFrame to keep track of progress, will contain:
     # Epoch, loss per step, Training Accuracy per step, Testing Accuracy per end of Epoch,
     # Sparsity per step, step_size per step, mom_ts per step, b_mom_ts per step,
-    # weight_decay per step, av_param per step,( and lambda per step if available).
+    # weight_decay per step, av_param per step,( and lambda/mode/maximum factor per step if available).
     
 
     df_len = num_epoch*len_per_epoch
@@ -193,7 +193,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     # if l1 prox is available, track lambda. Otherwise, do not track lambda
     if optimizer.has_prox: 
         df_col_names = ['Epoch', 'loss', 'Train_acc', 'Epoch_Final_Test_acc', 'Sparsity',
-                        'step_size', 'mom_ts', 'b_mom_ts', 'weight_decay', 'av_param', 'lam']
+                        'step_size', 'mom_ts', 'b_mom_ts', 'weight_decay', 'av_param', 'lam', 'maximum_factor']
         
     if not optimizer.has_prox: 
         df_col_names = ['Epoch', 'loss', 'Train_acc', 'Epoch_Final_Test_acc', 'Sparsity',
@@ -209,6 +209,14 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     
     for epoch in range(num_epoch):
         # For each epoch, if subset of data is used, make training/testing data a subset of full data
+        # At about every 4 epochs, halve step size and double averaging.
+        if epoch_updates is not None and optimizer.it_specs.get_type() == 'IterationSpecs':
+            if epoch+1 in epoch_updates:
+                lr /= 2
+                training_specs.set_step_size(lr)
+                av_param = 1.0 - (1.0 - av_param) / 2.0
+                training_specs.set_av_param(av_param)
+                
         if subset_Data is not None:
             # Create a subset of the dataset for possible analysis purposes
             subset_train_indices = torch.randperm(len(train_dataset))[:subset_train_size]
@@ -257,8 +265,9 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
             progress_df.b_mom_ts[progress_df_idx] = training_specs.b_mom_ts
             progress_df.weight_decay[progress_df_idx] = training_specs.wd
             
-            if optimizer.has_prox: # If l1 prox is available, update progress df with lambda
+            if optimizer.has_prox: # If l1 prox is available, update progress df with lambda and mode
                 progress_df.lam[progress_df_idx] = optimizer.prox.lam
+                progress_df.maximum_factor[progress_df_idx] = optimizer.prox.maximum_factor
             
             try: # if training specs has av attribute, update progress_df
                 av_update = training_specs.av
@@ -286,13 +295,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
                                 accuracy / 100, accuracy % 100, t_accuracy / 100, t_accuracy % 100, sparsity/100, sparsity % 100))
         
         print('')
-        # At about every 4 epochs, halve step size and double averaging.
-        if epoch_updates is not None:
-            if epoch in epoch_updates:
-                lr /= 2
-                training_specs.set_step_size(lr)
-                av_param = 1.0 - (1.0 - av_param) / 2.0
-                training_specs.set_av_param(av_param)
+
 
     # Calculate accuracy and save output.
     if device.type == "cpu":
@@ -303,10 +306,11 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     print('Accuracy of the network on the %d test images: %d.%02d %%' %
           (len(val_dataset), final_accuracy / 100, final_accuracy % 100))
     
+    if progress_data_output_file is not None:
+        progress_df.to_csv(progress_data_output_file, index = True)
+
     if model_output_file is not None:
         torch.save(model, model_output_file)
     
-    if progress_data_output_file is not None:
-        progress_df.to_csv(progress_data_output_file, index = True)
 
     return progress_df

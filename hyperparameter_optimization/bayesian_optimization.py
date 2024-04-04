@@ -99,7 +99,10 @@ class IterationSpecs:
 
   def set_av_param(self, av_param):
     self.av = av_param
-
+    
+  def get_type(self):
+    return "IterationSpecs"
+    
 
 class CosineSpecs:
   def __init__(self, max_iter, init_step_size=0.01, mom_ts=0.1, b_mom_ts=0.1, weight_decay=5e-4):
@@ -123,6 +126,9 @@ class CosineSpecs:
 
   def weight_decay(self, it):
     return self.wd
+
+  def get_type(self):
+    return "CosineSpecs"
 
 
 class xRDA(Optimizer):
@@ -260,7 +266,7 @@ def bayes_train(model, criterion, optimizer, train_loader, epoch, device):
       # print(i)
 
 
-def bayes_objective_function(params, model, model_type, criterion, train_func, k_folds,
+def bayes_objective_function(params, model, it_specs, criterion, train_func, k_folds,
                              num_epoch, trainset, batch_size, device, subset_Data, mode = "normal"):
     """
     
@@ -276,8 +282,8 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         Dictionary of Parameter space used in hyperopt. Instance of space object in bayes_optimizer
     model : nn.Module object
         The Neural Network to be trained and tune hyperparameters
-    model_type : list
-        list containing string. Options: 'resnet', 'vgg', 'densenet'
+    it_specs: str
+        The iteration specs for the optimizer of the model given. ("CosineSpecs"/"IterationSpecs")
     criterion : function
         Loss function of Neural Network (nn.CrossEntropyLoss())
     train_func : function
@@ -295,8 +301,11 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         size of random subset of training data. Set to None for no subsetting.
     device : device
         device object of torch module
+        
     mode : string, optional
         Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
+
+
     Returns
     -------
     dict
@@ -375,26 +384,35 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
         weight_decay = params['weight_decay']
         
         # Different models require different training specs and different prox        
-
-        if model_type.lower() == 'resnet':
+        epoch_updates = None
+        if it_specs == 'IterationSpecs':
             training_specs = IterationSpecs(step_size=init_lr, mom_ts=mom_ts,
                                             b_mom_ts=b_mom_ts, weight_decay=weight_decay, av_param=av_param)
+            lr = init_lr
+            epoch_updates = list(dict.fromkeys(np.floor(np.linspace(1,num_epoch,5))))[2:]
             
-            
-        if model_type.lower() == 'vgg' or model_type.lower() == 'densenet':
 
+        if it_specs == "CosineSpecs":
             training_specs = CosineSpecs(max_iter= num_steps,
                 init_step_size= init_lr, mom_ts=mom_ts, b_mom_ts=b_mom_ts, weight_decay=weight_decay)
+
             
         # Initialize the optimizer
         optimizer = xRDA(model.parameters(), it_specs=training_specs,
                          prox= l1_prox(lam=lam, maximum_factor=500, mode= mode))
+        
         
             
         
         # Train the model on the current fold
         for epoch in range(num_epoch):
             print('Epoch:', epoch+1)
+            if epoch_updates is not None and it_specs == 'IterationSpecs':
+                if epoch+1 in epoch_updates:
+                    lr /= 2
+                    training_specs.set_step_size(lr)
+                    av_param = 1.0 - (1.0 - av_param) / 2.0
+                    training_specs.set_av_param(av_param)
             train_func(model, criterion, optimizer, train_loader, epoch, device)
     
         # Evaluate the model on the test set
@@ -422,7 +440,11 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
     ## count zero or zero-like? Without zero-like, torch.nonzero() and torch.count_nonzero() require
     ## ... a float of order 1e-46 to be considered 0
     sparsity = sum(torch.count_nonzero(x) for x in list(model.parameters()))
-    
+    print("Params: ")
+    print(params)
+    print("Percent Non-zero: "+str(100*sparsity.item()/num_params)+"%")
+    print("Test Loss: "+str( min(test_loss_folds).item()))
+    print("")
     # Alternatively
     # See if there is a difference between this and the other count zero method. 
     # tol = 1e-8
@@ -435,7 +457,7 @@ def bayes_objective_function(params, model, model_type, criterion, train_func, k
     return {'loss': loss_out, 'params': params, 'status': STATUS_OK}
 
 
-def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num_epoch,
+def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_epoch,
                     trainset, batch_size, subset_Data, device, mode = "normal"):
     """
     
@@ -454,8 +476,8 @@ def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num
         Max evaluations in search of bayesian optimization.
     model : nn.Module object
         The Neural Network to be trained and tune hyperparameters
-    model_type : list
-        list containing string. Options: 'resnet', 'vgg', 'densenet'
+    it_specs: str
+        The iteration specs for the optimizer of the model given. ("CosineSpecs"/"IterationSpecs")
     criterion : function
         Loss function of Neural Network (nn.CrossEntropyLoss())
     k_folds : int
@@ -484,10 +506,18 @@ def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num
 
     """
     # wrapper function of objective function with given bayesian optimizer parameters
-    obj_function = partial(bayes_objective_function, model = model, model_type = model_type, criterion = criterion,
-                           train_func = bayes_train, k_folds = k_folds, num_epoch = num_epoch,
-                           trainset = trainset, batch_size = batch_size, subset_Data = subset_Data,
-                           device = device, mode = mode)
+    obj_function = partial(bayes_objective_function,
+                           model = model,
+                           it_specs = it_specs,
+                           criterion = criterion,
+                           train_func = bayes_train,
+                           k_folds = k_folds,
+                           num_epoch = num_epoch,
+                           trainset = trainset,
+                           batch_size = batch_size,
+                           subset_Data = subset_Data,
+                           device = device,
+                           mode = mode)
     
     bayes_trials = Trials()
     
@@ -513,7 +543,7 @@ def bayes_optimizer(space, max_evals, model, model_type, criterion, k_folds, num
     # max_evals
     # num_epoch
             
-def tune_parameters(model, model_type, mode, space, params_output_file, trials_output_file, data, transform_train,
+def tune_parameters(model, it_specs, mode, space, params_output_file, trials_output_file, data, transform_train,
                     train_batch_size = 128, subset_Data = None, k_folds = 1, num_epoch = 10, max_evals = 40):
     """
     
@@ -527,9 +557,8 @@ def tune_parameters(model, model_type, mode, space, params_output_file, trials_o
     ----------
     model : nn.Module object
         The Neural Network to be trained 
-    model_type : string
-        Type of model, used to keep track of training specs
-            Options:'resnet'/'vgg'/'densenet'
+    it_specs: str
+        The iteration specs for the optimizer of the model given. ("CosineSpecs"/"IterationSpecs")
     mode : string, optional
         Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
     space : dict
@@ -604,7 +633,7 @@ def tune_parameters(model, model_type, mode, space, params_output_file, trials_o
                 if not os.path.exists(temp_str):
                     os.mkdir(temp_str)
         
-    best_params, trials = bayes_optimizer(space=space, max_evals=max_evals, model=model, model_type=model_type,
+    best_params, trials = bayes_optimizer(space=space, max_evals=max_evals, model=model, it_specs = it_specs,
                                           criterion=criterion,k_folds=k_folds, num_epoch=num_epoch, trainset=trainset,
                                           batch_size=train_batch_size, subset_Data=subset_Data, device=device, mode=mode)
     

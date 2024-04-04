@@ -13,7 +13,7 @@ class ExpCosineSpecs:
     self.mom_ts = mom_ts
     self.wd = weight_decay
     self.b_mom_ts = b_mom_ts
-
+    
   def step_size(self, it):
     if 50 * it <= self.max_iter:
       return 50.0 * self.step * it / self.max_iter
@@ -30,4 +30,8 @@ class ExpCosineSpecs:
 
   def weight_decay(self, it):
     return self.wd
+
+  def get_type(self):
+     return "ExpCosineSpecs"
+     
 

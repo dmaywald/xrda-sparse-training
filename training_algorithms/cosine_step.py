@@ -28,3 +28,6 @@ class CosineSpecs:
   def weight_decay(self, it):
     return self.wd
 
+  def get_type(self):
+     return "CosineSpecs"
+

@@ -12,7 +12,7 @@ import scipy.stats as stat
 def ResNetParamSpace(expected_lam = 1.3e-6, max_lam = 5e-3, prob_max_lam = .01,
              init_lr_low = 0, init_lr_high = np.log(2), av_low = 0, av_high = 1,
              mom_ts = 9.5, b_mom_ts = 9.5, sigma_mom_ts = 1, sigma_b_mom_ts = 1,
-             expected_wd = 5e-4, max_wd = 1e-2, prob_max_wd = .01):
+             expected_wd = 1e-3, max_wd = 1e-2, prob_max_wd = .01):
     
     space = {
         'lam' : hp.lognormal('lam', np.log(expected_lam),

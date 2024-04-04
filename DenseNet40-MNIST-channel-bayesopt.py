@@ -20,11 +20,11 @@ if __name__ == '__main__':
 
     init_params = {
         'init_lr': 1.0, #1.0 by default
-        'lam': 1e-5, #5e-8 by default
+        'lam': 5e-8, #5e-8 by default
         'av_param': 0.0, # 0.0 by default
         'mom_ts': 9.5, # 9.5 by default
         'b_mom_ts': 9.5, # 9.5 by default
-        'weight_decay': 1e-2 # 5e-4 by default
+        'weight_decay': 5e-4 # 5e-4 by default
         }
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -32,8 +32,8 @@ if __name__ == '__main__':
     model = mnist_densenet().to(device)
     
     train_batch_size = 128
-    num_epoch = 2
-    subset_Data = 2**13
+    num_epoch = 30
+    subset_Data = None
     
     if subset_Data is not None:
         max_iter = math.ceil(subset_Data/train_batch_size) * num_epoch

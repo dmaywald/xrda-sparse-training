@@ -31,3 +31,5 @@ class IterationSpecs:
   def set_av_param(self, av_param):
     self.av = av_param
 
+  def get_type(self):
+      return "IterationSpecs"
