@@ -12,6 +12,7 @@ import numpy as np
 from scipy import stats
 from functools import partial
 import os
+import copy
 
 import torch
 import torch.nn as nn
@@ -267,7 +268,8 @@ def bayes_train(model, criterion, optimizer, train_loader, epoch, device):
 
 
 def bayes_objective_function(params, model, it_specs, criterion, train_func, k_folds,
-                             num_epoch, trainset, batch_size, device, subset_Data, mode = "normal"):
+                             num_epoch, trainset, batch_size, device, subset_Data, mode = "normal",
+                             sparse_scale = 1, check_point = None, max_iter = None, epoch_updates = None):
     """
     
     
@@ -304,6 +306,9 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         
     mode : string, optional
         Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
+        
+    check_point : dict, optional
+        Initial parameterization of model and optimizer (if desired).
 
 
     Returns
@@ -315,6 +320,11 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
          params: hyperparameters calculated at current step of bayesian optimization,
          status: STATUS_OK object of hp module}
     """
+    if check_point['model_state_dict'] is not None:
+        model.load_state_dict(check_point['model_state_dict'])
+        # print(model.state_dict()['classifier.bias'])
+    
+    
     num_params = sum([x.numel() for x in list(model.parameters())])
     
     if subset_Data is not None:
@@ -329,6 +339,7 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         
         
         trainset_sub = Subset(trainset, subset_train_indices)
+        # print("Train indices: ")
         # print(subset_train_indices)
         del trainset # delete bloat (still carried by wrapper function, each subset is unique per bayes_opt iteration)
         
@@ -352,6 +363,7 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
     
     # DECISION: FOR OBJECTIVE FUNCTION, RETURN LOSS OR 1 - ACCURACY?
     test_loss_folds = []
+    sparsity_folds = []
     # accuracy_folds = []
     
     # Loop through each fold
@@ -384,29 +396,41 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         weight_decay = params['weight_decay']
         
         # Different models require different training specs and different prox        
-        epoch_updates = None
         if it_specs == 'IterationSpecs':
             training_specs = IterationSpecs(step_size=init_lr, mom_ts=mom_ts,
                                             b_mom_ts=b_mom_ts, weight_decay=weight_decay, av_param=av_param)
             lr = init_lr
-            epoch_updates = list(dict.fromkeys(np.floor(np.linspace(1,num_epoch,5))))[2:]
+            if epoch_updates is None: # if epoch_updates is not specified, assume epoch_updates are similar to a full training scheme
+                epoch_updates = list(dict.fromkeys(np.floor(np.linspace(1,num_epoch,5))))[2:]
             
 
         if it_specs == "CosineSpecs":
-            training_specs = CosineSpecs(max_iter= num_steps,
-                init_step_size= init_lr, mom_ts=mom_ts, b_mom_ts=b_mom_ts, weight_decay=weight_decay)
-
-            
+            if max_iter is None:
+                training_specs = CosineSpecs(max_iter= num_steps,
+                    init_step_size= init_lr, mom_ts=mom_ts, b_mom_ts=b_mom_ts, weight_decay=weight_decay)
+            if max_iter is not None:
+                training_specs = CosineSpecs(max_iter= max_iter,
+                    init_step_size= init_lr, mom_ts=mom_ts, b_mom_ts=b_mom_ts, weight_decay=weight_decay)
+        
+        if check_point['optimizer_state_dict'] is None:
         # Initialize the optimizer
-        optimizer = xRDA(model.parameters(), it_specs=training_specs,
-                         prox= l1_prox(lam=lam, maximum_factor=500, mode= mode))
-        
-        
+            optimizer = xRDA(model.parameters(), it_specs=training_specs,
+                             prox= l1_prox(lam=lam, maximum_factor=500, mode= mode))
+            
+        if check_point['optimizer_state_dict'] is not None:     
+            # Initialize the optimizer
+            optimizer = xRDA(model.parameters(), it_specs=training_specs,
+                             prox= l1_prox(lam=lam, maximum_factor=500, mode= mode))
+            # load in check point
+            optimizer.load_state_dict(check_point['optimizer_state_dict'])
+            optimizer.set_it_specs(new_specs= training_specs)
+                    
             
         
         # Train the model on the current fold
         for epoch in range(num_epoch):
             print('Epoch:', epoch+1)
+            # print(optimizer.iteration)
             if epoch_updates is not None and it_specs == 'IterationSpecs':
                 if epoch+1 in epoch_updates:
                     lr /= 2
@@ -437,28 +461,35 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         test_loss_folds.append(test_loss)
         # accuracy_folds.append(accuracy)
         
-    ## count zero or zero-like? Without zero-like, torch.nonzero() and torch.count_nonzero() require
-    ## ... a float of order 1e-46 to be considered 0
-    sparsity = sum(torch.count_nonzero(x) for x in list(model.parameters()))
+        ## count zero or zero-like? Without zero-like, torch.nonzero() and torch.count_nonzero() require
+        ## ... a float of order 1e-46 to be considered 0
+        sparsity_folds.append( sum(torch.count_nonzero(x) for x in list(model.parameters())))
+        # print(test_loss)
+        # print(sparsity_folds)
+    sparsity = min(sparsity_folds)   
     print("Params: ")
     print(params)
     print("Percent Non-zero: "+str(100*sparsity.item()/num_params)+"%")
     print("Test Loss: "+str( min(test_loss_folds).item()))
     print("")
     # Alternatively
-    # See if there is a difference between this and the other count zero method. 
-    # tol = 1e-8
-    # sparsity = sum([len(x[torch.logical_or(x<=-tol, x>=tol)]) for x in list(model.parameters())])
+        # See if there is a difference between this and the other count zero method. 
+        # tol = 1e-8
+        # sparsity = sum([len(x[torch.logical_or(x<=-tol, x>=tol)]) for x in list(model.parameters())])
     
     # loss of random parameters is around 2, so sparity/num_params is of similar scale
-    scale = 1.0
-    loss_out = min(test_loss_folds) + scale*(sparsity/num_params)
+    loss_out = min(test_loss_folds) + sparse_scale*(sparsity/num_params)
     # loss_out = 1 - max(accuracy_folds)
-    return {'loss': loss_out, 'params': params, 'status': STATUS_OK}
+    return {'loss': loss_out, 'params': params,
+            'status': STATUS_OK,
+            'test_loss_val': min(test_loss_folds).item(),
+            'perc_non_zero_val': sparsity.item()/num_params,
+            'sparse_scale': sparse_scale}
 
 
 def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_epoch,
-                    trainset, batch_size, subset_Data, device, mode = "normal"):
+                    trainset, batch_size, subset_Data, device, mode = "normal",
+                    sparse_scale = 1, check_point = None, max_iter = None, epoch_updates = None):
     """
     
     
@@ -517,7 +548,11 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
                            batch_size = batch_size,
                            subset_Data = subset_Data,
                            device = device,
-                           mode = mode)
+                           mode = mode,
+                           sparse_scale = sparse_scale,
+                           check_point = check_point, 
+                           max_iter = max_iter, 
+                           epoch_updates = epoch_updates)
     
     bayes_trials = Trials()
     
@@ -544,7 +579,8 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
     # num_epoch
             
 def tune_parameters(model, it_specs, mode, space, params_output_file, trials_output_file, data, transform_train,
-                    train_batch_size = 128, subset_Data = None, k_folds = 1, num_epoch = 10, max_evals = 40):
+                    train_batch_size = 128, subset_Data = None, k_folds = 1, num_epoch = 10, max_evals = 40, sparse_scale = 1,
+                    max_iter = None, epoch_updates = None, check_point = None):
     """
     
     
@@ -601,6 +637,12 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
+    if check_point is None: # if check_point not specified, initial model and optimizer is check_point
+        check_point = {
+            'model_state_dict': copy.deepcopy(model.state_dict()),
+            'optimizer_state_dict': None
+            }
+        
     
     if data == "mnist":
         trainset = torchvision.datasets.MNIST(root='./', train=True, download=True, transform=transform_train)
@@ -635,7 +677,8 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
         
     best_params, trials = bayes_optimizer(space=space, max_evals=max_evals, model=model, it_specs = it_specs,
                                           criterion=criterion,k_folds=k_folds, num_epoch=num_epoch, trainset=trainset,
-                                          batch_size=train_batch_size, subset_Data=subset_Data, device=device, mode=mode)
+                                          batch_size=train_batch_size, subset_Data=subset_Data, device=device, mode=mode, sparse_scale = sparse_scale,
+                                          check_point= check_point, max_iter= max_iter, epoch_updates= epoch_updates)
     
     if params_output_file is not None:
         torch.save(best_params, params_output_file)   

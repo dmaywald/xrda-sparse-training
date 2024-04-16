@@ -160,6 +160,7 @@ cifar-10-batches-py/
 cifar-100-python/
 cifar-10-batches-py/
 results/
+onnx_results/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

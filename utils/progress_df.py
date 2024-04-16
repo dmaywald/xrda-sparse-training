@@ -30,7 +30,8 @@ def test_accuracy(test_loader, net, cuda=False):
     
 def progress_dataframe(model, params, model_output_file, progress_data_output_file, data,
                        transform_train, transform_val, optimizer, training_specs,
-                       train_batch_size = 128, subset_Data = None, num_epoch = 50, epoch_updates = None):
+                       train_batch_size = 128, subset_Data = None, num_epoch = 50, epoch_updates = None,
+                       onnx_output_file = None):
     """
     
     
@@ -75,7 +76,8 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     epoch_updates : list of integers, optional
         List of integers specifying when the averaging parameter should increased and step size should be halved.
         Set to None if the these training specs should be constant throughout training. The default is None.
-
+    onnx_out : str, optional
+        path and name of onnx visualization file that will be saved. Use None if onnx data should not be saved
     Returns
     -------
     Returns progress data frame after training model with given tuning/hyper parameters.
@@ -115,6 +117,16 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
                 temp_str = temp_str + str_list[idx]+'/'
                 if not os.path.exists(temp_str):
                     os.mkdir(temp_str)
+                    
+    # If onnx_output_file has subdirectories, make sure those subdirectories exist            
+    if onnx_output_file is not None:
+        str_list = onnx_output_file.split("/")[:-1]
+        if len(str_list) > 0: 
+            temp_str = ''
+            for idx in range(len(str_list)):
+                temp_str = temp_str + str_list[idx]+'/'
+                if not os.path.exists(temp_str):
+                    os.mkdir(temp_str)                    
     
     # if subset data is used, load full data and get data subset sizes
     if subset_Data is not None:
@@ -277,7 +289,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
             progress_df.av_param[progress_df_idx] = av_update
             print('Current Loss: ', loss.item())
             print('Current Train Accuracy:', 100*correct.item()/total)
-            print('Current Sparsity:', 1 - sparsity/num_model_params)
+            print('Current Sparsity:', 100*(1 - sparsity/num_model_params))
             
             progress_df_idx += 1
             print('')
@@ -310,7 +322,11 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
         progress_df.to_csv(progress_data_output_file, index = True)
 
     if model_output_file is not None:
-        torch.save(model, model_output_file)
+        checkpoint = {'state_dict': model.state_dict(),'optimizer': optimizer.state_dict()}
+        torch.save(checkpoint, model_output_file)
+        
+    if onnx_output_file is not None:
+        torch.onnx.export(model, inputs, onnx_output_file)
     
 
     return progress_df

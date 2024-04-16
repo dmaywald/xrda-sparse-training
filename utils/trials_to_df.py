@@ -1,11 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Apr  3 19:12:06 2024
 
-@author: Devon
-"""
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
 
 def trials_to_df(trials, save_trials_str = None):
     """
@@ -23,12 +19,16 @@ def trials_to_df(trials, save_trials_str = None):
     Data frame of results from bayes trials object
     """
     
-    temp = pd.DataFrame([[trials.trials[i]['result']['params'][param] for i in range(len(trials.trials))] for param in ['init_lr', 'lam', 'av_param', 'mom_ts', 'b_mom_ts', 'weight_decay']]).T
-    temp.columns = ['init_lr', 'lam', 'av_param', 'mom_ts', 'b_mom_ts', 'weight_decay']
+    temp = pd.DataFrame([[trials.trials[i]['result']['params'][param] for i in range(len(trials.trials))] for param in trials.trials[0]['result']['params'].keys()]).T
+    temp.columns = list(trials.trials[0]['result']['params'].keys())
     
-    temp = temp.join(pd.Series([trials.trials[i]['result']['loss'] for i in range(len(trials.trials))],  name = 'loss'))
+    for key in trials.trials[0]['result'].keys():
+        if key == 'status' or key == 'params':
+            continue        
+        temp = temp.join(pd.Series([trials.trials[i]['result'][key] for i in range(len(trials.trials))],  name = key))
 
-    temp.init_lr = 2 - temp.init_lr
+
+    temp['init_lr'] = 2 - temp['init_lr']
     
     if save_trials_str is not None:
         str_list = save_trials_str.split("/")[:-1]
