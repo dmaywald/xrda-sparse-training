@@ -7,26 +7,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.utils.data import Subset
-
-def test_accuracy(test_loader, net, cuda=False):
-  # Test the network on the test set.
-  net.eval()
-  correct = 0
-  total = 0
-  for data in test_loader:
-    images, labels = data
-    images = Variable(images)
-    labels = labels
-    if cuda:
-      images = images.cuda()
-      labels = labels.cuda()
-    outputs = net(images)
-    _, predicted = torch.max(outputs.data, 1)
-    total += labels.size(0)
-    correct += (predicted == labels).sum()
-  net.train()
-  return (10000 * correct / total)
-
+from test_accuracy import test_accuracy
     
 def progress_dataframe(model, params, model_output_file, progress_data_output_file, data,
                        transform_train, transform_val, optimizer, training_specs,
@@ -76,7 +57,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
     epoch_updates : list of integers, optional
         List of integers specifying when the averaging parameter should increased and step size should be halved.
         Set to None if the these training specs should be constant throughout training. The default is None.
-    onnx_out : str, optional
+    onnx_output_file : str, optional
         path and name of onnx visualization file that will be saved. Use None if onnx data should not be saved
     Returns
     -------

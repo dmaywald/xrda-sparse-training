@@ -3,6 +3,8 @@ from hyperopt import STATUS_OK
 from hyperopt import Trials
 from hyperopt import hp
 from hyperopt import fmin
+from hyperopt import atpe
+from hyperopt import rand
 
 from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
@@ -23,203 +25,23 @@ from torch.autograd import Variable
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
 
-class l1_prox:
-  def __init__(self, lam, maximum_factor, mode = 'normal'):
-    self.lam = lam
-    self.maximum_factor = maximum_factor
-    self.mode = mode
-    return
+import sys
+import os
+ 
+# getting the name of the directory
+# where the this file is present.
+current = os.path.dirname(os.path.realpath(__file__))
+ 
+# Getting the parent directory name
+# where the current directory is present.
+parent = os.path.dirname(current)
+ 
+# adding the parent directory to 
+# the sys.path.
+sys.path.append(parent)
 
-  def apply(self, p, backward_step):
-    p.data.copy_(torch.clamp(p - self.lam * backward_step, min=0) + torch.clamp(p + self.lam * backward_step, max=0))
-
-  def get_zero_params(self, p):
-    return torch.zeros_like(p.data)
-
-  def get_running_av(self, p):
-    with torch.no_grad():
-      if len(p.shape) == 4 and self.mode == 'kernel':
-        norms = torch.norm(p, p=1, dim=[2,3])
-        return (1.0 / (p.shape[2] * p.shape[3])) * norms[:,:,None,None] * torch.ones_like(p.data)
-      if len(p.shape) == 4 and self.mode == 'channel':
-        norms = torch.norm(p, p=1, dim=[1,2,3])
-        return (1.0 / (p.shape[1] * p.shape[2] * p.shape[3])) * norms[:,None,None,None] * torch.ones_like(p.data)
-      return torch.abs(p.data)
-
-  def calculate_backward_v(self, running_av):
-    maximum = torch.max(running_av)
-    if maximum > 0 and len(running_av.shape) == 4 and self.mode == 'kernel':
-      return math.sqrt(running_av.shape[2] * running_av.shape[3]) * self.maximum_factor / (1.0 + (self.maximum_factor - 1.0)*(running_av / maximum))
-    elif maximum > 0 and len(running_av.shape) == 4 and self.mode == 'channel':
-      return math.sqrt(running_av.shape[1] * running_av.shape[2] * running_av.shape[3])* self.maximum_factor / (1.0 + (self.maximum_factor - 1.0)*(running_av / maximum))
-    elif maximum > 0 and len(running_av.shape) == 4 or len(running_av.shape) == 2:
-      return self.maximum_factor / (1.0 + (self.maximum_factor - 1.0)*(running_av / maximum))
-    else:
-      return torch.zeros_like(running_av)
-
-  def register_running_av(self, running_av):
-    return
-
-  def reset(self):
-    return
-
-
-class ConstStepFB:
-
-  def __init__(self, step_size):
-    self.step = step_size
-
-  def step_size(self, it):
-    return self.step
-
-class IterationSpecs:
-  def __init__(self, step_size=0.01, av_param=1.0, mom_ts=0.1, b_mom_ts=0.1, weight_decay=5e-4):
-    self.step = step_size
-    self.av = av_param
-    self.mom_ts = mom_ts
-    self.wd = weight_decay
-    self.b_mom_ts = b_mom_ts
-
-  def step_size(self, it):
-    return self.step
-
-  def backward_momentum_time_scale(self, it):
-    return self.b_mom_ts
-
-  def av_param(self, it):
-    return self.av
-
-  def momentum_time_scale(self, it):
-    return self.mom_ts
-
-  def weight_decay(self, it):
-    return self.wd
-
-  def set_step_size(self, step_size):
-    self.step = step_size
-
-  def set_av_param(self, av_param):
-    self.av = av_param
-    
-  def get_type(self):
-    return "IterationSpecs"
-    
-
-class CosineSpecs:
-  def __init__(self, max_iter, init_step_size=0.01, mom_ts=0.1, b_mom_ts=0.1, weight_decay=5e-4):
-    self.max_iter = max_iter
-    self.step = init_step_size
-    self.mom_ts = mom_ts
-    self.wd = weight_decay
-    self.b_mom_ts = b_mom_ts
-
-  def step_size(self, it):
-    return 0.5 * self.step * (1.0 + math.cos(it * math.pi / self.max_iter))
-
-  def backward_momentum_time_scale(self, it):
-    return self.b_mom_ts
-
-  def av_param(self, it):
-    return 0.5 * (1.0 - math.cos(it * math.pi / self.max_iter))
-
-  def momentum_time_scale(self, it):
-    return self.mom_ts
-
-  def weight_decay(self, it):
-    return self.wd
-
-  def get_type(self):
-    return "CosineSpecs"
-
-
-class xRDA(Optimizer):
-  
-  def __init__(self, params, it_specs=ConstStepFB(0.003), prox=None):
-    defaults = dict()
-    super(xRDA, self).__init__(params, defaults)
-    self.it_specs = it_specs
-    self.iteration = 1
-    if prox is not None:
-      self.prox = prox
-      self.has_prox = True
-    else:
-      self.has_prox = False
-
-  def set_it_specs(self, new_specs):
-    self.it_specs = new_specs
-    
-
-  def step(self, closure=None):
-    loss = None
-    if closure is not None:
-      loss = closure()
-    # Gather Parameters
-    step_size = self.it_specs.step_size(self.iteration)
-
-    av = 0 # default value of the averaging parameter
-    try: # if it_specs provides a different value, use it
-      av = self.it_specs.av_param(self.iteration)
-    except AttributeError:
-      pass
-
-    weight_decay = 0 # default value of weight_decay
-    try:
-      weight_decay = self.it_specs.weight_decay(self.iteration)
-    except AttributeError:
-      pass
-
-    mom_ts = 0
-    try:
-      mom_ts = self.it_specs.momentum_time_scale(self.iteration)
-    except AttributeError:
-      pass
-
-    b_mom_ts = 0
-    try:
-      b_mom_ts = self.it_specs.backward_momentum_time_scale(self.iteration)
-    except AttributeError:
-      pass
-
-    for group in self.param_groups:
-      for p in group['params']:
-        if p.grad is None:
-          continue
-
-        state = self.state[p]
-        
-        dp = p.grad.data
-        dp.add_(weight_decay, p.data) # originally: dp.add_(weight_decay, p.data)
-
-        if len(state) == 0:
-          if self.has_prox:
-            state['backward_step'] = self.prox.get_zero_params(p)
-            state['running_av'] = self.prox.get_zero_params(p)
-          state['p_temp'] = torch.clone(p).detach()
-          state['v'] = torch.zeros_like(p.data)
-
-        if self.has_prox:
-          running_av = self.prox.get_running_av(p)
-          state['running_av'].mul_(math.exp(-step_size / b_mom_ts)).add_(-math.expm1(-step_size / b_mom_ts), running_av)
-          backward_v = self.prox.calculate_backward_v(state['running_av'])
-          state['backward_step'] = av * state['backward_step'] + step_size * backward_v
-
-        # Average the pre and post proximal iterates
-        state['p_temp'].mul_(av).add_((1.0 - av),  p.data)
-
-        # Calculate the velocity.
-        state['v'].mul_(math.exp(-step_size / mom_ts)).add_(-math.expm1(-step_size / mom_ts), dp)
-
-        # Perform forward gradient step
-        state['p_temp'].add_(-step_size, state['v'].data)
-
-        # Copy the data in preparation for the backward step
-        p.data.copy_(state['p_temp'].data)
-
-        # Perform the backward step on each parameter group if it is available.
-        if self.has_prox:
-          self.prox.apply(p, state['backward_step'])
-    
-    self.iteration += 1
+from regularization import l1_prox
+from training_algorithms import IterationSpecs, CosineSpecs, xRDA
     
 
 def bayes_train(model, criterion, optimizer, train_loader, epoch, device):
@@ -303,12 +125,23 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         size of random subset of training data. Set to None for no subsetting.
     device : device
         device object of torch module
-        
     mode : string, optional
         Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
-        
+    sparse_scale: float, optional
+        specify multiplicative factor of 'sparsity' in objective function value. Ideally sparsity should be of similar scale to that of 
+        expected criterion loss
     check_point : dict, optional
         Initial parameterization of model and optimizer (if desired).
+    max_iter : float, optional
+        Used to parameterize training specs. The model will be trained in the Bayesian Optimization objective function in 
+        accordance to given max_iter (if CosineSpecs is specified).
+        If None, max_iter will be calculated based off current subset_data and num_epochs. This has meaningful implication
+        to Bayesian Optimization and the hyperparameters to be tuned.
+     epoch_updates : list of integers, optional
+         Used to parameterize training specs. The model will be trained in the Bayesian Optimization objective function in 
+         accordance to given epoch_updates (if IterationSpecs is specified).
+         If None, epoch_updates will be calculated based off current num_epochs. This has meaningful implication
+         to Bayesian Optimization and the hyperparameters to be tuned.         
 
 
     Returns
@@ -316,14 +149,16 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
     dict
     
     Trains model with paramaters specified and returns 
-        {loss: to be minimized by bayesian optimizer,
-         params: hyperparameters calculated at current step of bayesian optimization,
-         status: STATUS_OK object of hp module}
+        {'loss': to be minimized by bayesian optimizer (test_loss_val + sparse_scale * sparsity),
+         'params': hyperparameters calculated at current step of bayesian optimization,
+         'status': STATUS_OK object of hp module
+         'test_loss_val': the minimum test loss (of criterion function specified) across k_folds many folds,
+         'perc_non_zero_val': the minimum sparsity (# non-zero params / total params) across k_folds many folds,
+         'sparse_scale': sparse_scale used to scale sparsity up/down to expected test_loss_val}
     """
     if check_point['model_state_dict'] is not None:
         model.load_state_dict(check_point['model_state_dict'])
         # print(model.state_dict()['classifier.bias'])
-    
     
     num_params = sum([x.numel() for x in list(model.parameters())])
     
@@ -431,6 +266,10 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         for epoch in range(num_epoch):
             print('Epoch:', epoch+1)
             # print(optimizer.iteration)
+            
+            # If epoch_updates has been recalculated and training specs is appropriate
+            # determine if epoch is in epoch_updates and cut step size in half
+            # and increase the averaging parameter
             if epoch_updates is not None and it_specs == 'IterationSpecs':
                 if epoch+1 in epoch_updates:
                     lr /= 2
@@ -466,6 +305,9 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
         sparsity_folds.append( sum(torch.count_nonzero(x) for x in list(model.parameters())))
         # print(test_loss)
         # print(sparsity_folds)
+    # Choice: Return minimum sparsity across folds or return sparsity of fold associated with min test loss?
+    # I chose minimum sparsity across folds
+    # sparsity = sparsity_folds[np.argmin(test_loss_folds)]
     sparsity = min(sparsity_folds)   
     print("Params: ")
     print(params)
@@ -480,7 +322,8 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
     # loss of random parameters is around 2, so sparity/num_params is of similar scale
     loss_out = min(test_loss_folds) + sparse_scale*(sparsity/num_params)
     # loss_out = 1 - max(accuracy_folds)
-    return {'loss': loss_out, 'params': params,
+    return {'loss': loss_out,
+            'params': params,
             'status': STATUS_OK,
             'test_loss_val': min(test_loss_folds).item(),
             'perc_non_zero_val': sparsity.item()/num_params,
@@ -489,7 +332,8 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
 
 def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_epoch,
                     trainset, batch_size, subset_Data, device, mode = "normal",
-                    sparse_scale = 1, check_point = None, max_iter = None, epoch_updates = None):
+                    sparse_scale = 1, check_point = None, max_iter = None, epoch_updates = None,
+                    algorithm = "tpe.suggest"):
     """
     
     
@@ -503,6 +347,7 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
     ----------
     space : dict
         Dictionary of hp function objects defining the parameter space for bayesian optimization
+        See https://hyperopt.github.io/hyperopt/getting-started/search_spaces/ for more
     max_evals : int
         Max evaluations in search of bayesian optimization.
     model : nn.Module object
@@ -526,7 +371,25 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
         device object of torch module
     mode : string, optional
         Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
-
+    sparse_scale: float, optional
+        specify multiplicative factor of 'sparsity' in objective function value. Ideally sparsity should be of similar scale to that of 
+        expected criterion loss
+    check_point : dict, optional
+        Initial parameterization of model and optimizer (if desired).
+    max_iter : float, optional
+        Used to parameterize training specs. The model will be trained in the Bayesian Optimization objective function in 
+        accordance to given max_iter (if CosineSpecs is specified).
+        If None, max_iter will be calculated based off current subset_data and num_epochs. This has meaningful implication
+        to Bayesian Optimization and the hyperparameters to be tuned.
+    epoch_updates : list of integers, optional
+        Used to parameterize training specs. The model will be trained in the Bayesian Optimization objective function in 
+        accordance to given epoch_updates (if IterationSpecs is specified).
+        If None, epoch_updates will be calculated based off current num_epochs. This has meaningful implication
+        to Bayesian Optimization and the hyperparameters to be tuned.  
+    algorithm: string, optional
+        Algorithm to use for bayesian optimization. Default is "tpe.suggest"
+        Options: "tpe.suggest", "atpe.suggest", "rand.suggest"
+        see https://hyperopt.github.io/hyperopt/#algorithms for more
     Returns
     -------
     best_params : dict
@@ -558,9 +421,20 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
     
     # call fmin on objective function to calculate best paramaters
     # return_argmin = False to return paramater values instead of list indices for parameters specified through list
-    best_params = fmin(fn = obj_function, space = space, algo= tpe.suggest,
-                       max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+    # use algorithm specified by string given in 'algorithm'
     
+    if algorithm == "tpe.suggest":
+        best_params = fmin(fn = obj_function, space = space, algo= tpe.suggest,
+                           max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+        
+    if algorithm == "atpe.suggest":
+        best_params = fmin(fn = obj_function, space = space, algo= atpe.suggest,
+                           max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+        
+    if algorithm == "rand.suggest":
+        best_params = fmin(fn = obj_function, space = space, algo= rand.suggest,
+                           max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+        
     return best_params, bayes_trials
 
 
@@ -580,7 +454,7 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
             
 def tune_parameters(model, it_specs, mode, space, params_output_file, trials_output_file, data, transform_train,
                     train_batch_size = 128, subset_Data = None, k_folds = 1, num_epoch = 10, max_evals = 40, sparse_scale = 1,
-                    max_iter = None, epoch_updates = None, check_point = None):
+                    max_iter = None, epoch_updates = None, check_point = None, algorithm = "tpe.suggest"):
     """
     
     
@@ -598,7 +472,8 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
     mode : string, optional
         Specify mode of model ('kernel', 'channel', or 'normal'). The default is 'normal' i.e. 'unstructured'.
     space : dict
-        Dictionary of hp function objects defining the parameter space for bayesian optimization
+        Dictionary of hp function objects defining the parameter space for bayesian optimization.
+        see https://hyperopt.github.io/hyperopt/getting-started/search_spaces/ for more
     params_output_file : string
         Path and Name of tuned parameters. Set to None if parameters should not be saved
     trials_output_file : string
@@ -620,7 +495,25 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
         bayes_objective function. The default is 10.
     max_evals : int, optional
         Number of iterations of bayes optimization. The default is 40.
-
+    sparse_scale: float, optional
+        specify multiplicative factor of 'sparsity' in objective function value. Ideally sparsity should be of similar scale to that of 
+        expected criterion loss
+    check_point : dict, optional
+        Initial parameterization of model and optimizer (if desired).
+    max_iter : float, optional
+        Used to parameterize training specs. The model will be trained in the Bayesian Optimization objective function in 
+        accordance to given max_iter (if CosineSpecs is specified).
+        If None, max_iter will be calculated based off current subset_data and num_epochs. This has meaningful implication
+        to Bayesian Optimization and the hyperparameters to be tuned.
+    epoch_updates : list of integers, optional
+        Used to parameterize training specs. The model will be trained in the Bayesian Optimization objective function in 
+        accordance to given epoch_updates (if IterationSpecs is specified).
+        If None, epoch_updates will be calculated based off current num_epochs. This has meaningful implication
+        to Bayesian Optimization and the hyperparameters to be tuned.
+    algorithm: string, optional
+        Algorithm to use for bayesian optimization. Default is "tpe.suggest"
+        Options: "tpe.suggest", "atpe.suggest", "rand.suggest"
+        see https://hyperopt.github.io/hyperopt/#algorithms for more
 
     Returns
     -------
@@ -678,7 +571,8 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
     best_params, trials = bayes_optimizer(space=space, max_evals=max_evals, model=model, it_specs = it_specs,
                                           criterion=criterion,k_folds=k_folds, num_epoch=num_epoch, trainset=trainset,
                                           batch_size=train_batch_size, subset_Data=subset_Data, device=device, mode=mode, sparse_scale = sparse_scale,
-                                          check_point= check_point, max_iter= max_iter, epoch_updates= epoch_updates)
+                                          check_point= check_point, max_iter= max_iter, epoch_updates= epoch_updates,
+                                          algorithm = algorithm)
     
     if params_output_file is not None:
         torch.save(best_params, params_output_file)   
