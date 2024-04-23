@@ -1,6 +1,6 @@
 from hyperopt import tpe
 from hyperopt import STATUS_OK
-from hyperopt import Trials
+from hyperopt import Trials, SparkTrials
 from hyperopt import hp
 from hyperopt import fmin
 from hyperopt import atpe
@@ -333,7 +333,7 @@ def bayes_objective_function(params, model, it_specs, criterion, train_func, k_f
 def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_epoch,
                     trainset, batch_size, subset_Data, device, mode = "normal",
                     sparse_scale = 1, check_point = None, max_iter = None, epoch_updates = None,
-                    algorithm = "tpe.suggest"):
+                    algorithm = "tpe.suggest", bayes_trials = None, parallelism = 1):
     """
     
     
@@ -390,6 +390,10 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
         Algorithm to use for bayesian optimization. Default is "tpe.suggest"
         Options: "tpe.suggest", "atpe.suggest", "rand.suggest"
         see https://hyperopt.github.io/hyperopt/#algorithms for more
+    bayes_trials: dict, optional
+        Trials dictionary to optionally start with. Set to None for cold start. Default is None
+    parallelism: int, optional        
+        Number of parallel searches for bayesian optimization. Set to 1 for non-parallel search. Default is 1. (work in progress)
     Returns
     -------
     best_params : dict
@@ -417,7 +421,13 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
                            max_iter = max_iter, 
                            epoch_updates = epoch_updates)
     
-    bayes_trials = Trials()
+    if parallelism == 1 and bayes_trials is None:
+        bayes_trials = Trials()
+    
+    ## Try to get this to run after installing pyspark 
+    # if parallelism != 1 and bayes_trials is None:
+    #     # Spark Trials runs 'max_evals' total settings in batches of size 'parallelism'
+    #     bayes_trials = SparkTrials(parallelism=parallelism*max_evals)
     
     # call fmin on objective function to calculate best paramaters
     # return_argmin = False to return paramater values instead of list indices for parameters specified through list
@@ -425,36 +435,23 @@ def bayes_optimizer(space, max_evals, model, it_specs, criterion, k_folds, num_e
     
     if algorithm == "tpe.suggest":
         best_params = fmin(fn = obj_function, space = space, algo= tpe.suggest,
-                           max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+                           max_evals= len(bayes_trials)+ max_evals, trials = bayes_trials, return_argmin=False)
         
     if algorithm == "atpe.suggest":
         best_params = fmin(fn = obj_function, space = space, algo= atpe.suggest,
-                           max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+                           max_evals= len(bayes_trials)+ max_evals, trials = bayes_trials, return_argmin=False)
         
     if algorithm == "rand.suggest":
         best_params = fmin(fn = obj_function, space = space, algo= rand.suggest,
-                           max_evals= max_evals, trials = bayes_trials, return_argmin=False)
+                           max_evals= len(bayes_trials)+ max_evals, trials = bayes_trials, return_argmin=False)
         
     return best_params, bayes_trials
 
 
-# A tune parameters function will need to be a function of:
-    # params_output_file
-    # trials_output_file
-    # transform_train
-    # trainset (possibly just string of "mnist"/"cifar10"/"cifar100")
-    # model
-    # model_type ('resnet'/'vgg'/'densenet')
-    # param_space
-    # train_batch_size
-    # subset_Data
-    # k_folds
-    # max_evals
-    # num_epoch
             
 def tune_parameters(model, it_specs, mode, space, params_output_file, trials_output_file, data, transform_train,
                     train_batch_size = 128, subset_Data = None, k_folds = 1, num_epoch = 10, max_evals = 40, sparse_scale = 1,
-                    max_iter = None, epoch_updates = None, check_point = None, algorithm = "tpe.suggest"):
+                    max_iter = None, epoch_updates = None, check_point = None, algorithm = "tpe.suggest", bayes_trials = None, parallelism = 1):
     """
     
     
@@ -514,6 +511,10 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
         Algorithm to use for bayesian optimization. Default is "tpe.suggest"
         Options: "tpe.suggest", "atpe.suggest", "rand.suggest"
         see https://hyperopt.github.io/hyperopt/#algorithms for more
+    bayes_trials: dict, optional
+        Trials dictionary to optionally start with. Set to None for cold start. Default is None
+    parallelism: int, optional        
+        Number of parallel searches for bayesian optimization. Set to 1 for non-parallel search. Default is 1. (work in progress)
 
     Returns
     -------
@@ -572,7 +573,7 @@ def tune_parameters(model, it_specs, mode, space, params_output_file, trials_out
                                           criterion=criterion,k_folds=k_folds, num_epoch=num_epoch, trainset=trainset,
                                           batch_size=train_batch_size, subset_Data=subset_Data, device=device, mode=mode, sparse_scale = sparse_scale,
                                           check_point= check_point, max_iter= max_iter, epoch_updates= epoch_updates,
-                                          algorithm = algorithm)
+                                          algorithm = algorithm, bayes_trials=bayes_trials, parallelism=1)
     
     if params_output_file is not None:
         torch.save(best_params, params_output_file)   

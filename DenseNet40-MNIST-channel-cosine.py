@@ -1,19 +1,20 @@
-import os
 import time
+import numpy as np
 import math
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision
 import torchvision.transforms as transforms
-from torch.autograd import Variable
+
 from models import mnist_densenet
 from training_algorithms import xRDA
-from regularization import  l1_prox
+from regularization import l1_prox
 from training_algorithms import CosineSpecs
-from utils import test_accuracy, progress_dataframe
+from utils import progress_dataframe
+from utils import trials_to_df
+
 from hyperparameter_optimization import tune_parameters
 from hyperparameter_optimization import DenseNetParamSpace
+
 
 if __name__ == '__main__':
     t0 = time.time()
@@ -31,9 +32,14 @@ if __name__ == '__main__':
     
     model = mnist_densenet().to(device)
     
+    
     train_batch_size = 128
     num_epoch = 30
     subset_Data = None
+    mode = 'channel' # normal, channel, or kernel
+    save_str = 'mnist_densenet40_channel_cosine_specs'
+    data = 'mnist'
+    
     
     if subset_Data is not None:
         max_iter = math.ceil(subset_Data/train_batch_size) * num_epoch
@@ -57,71 +63,76 @@ if __name__ == '__main__':
                                  weight_decay=init_params['weight_decay'])
     
     optimizer = xRDA(model.parameters(), it_specs=training_specs, 
-                     prox=l1_prox(lam=init_params['lam'], maximum_factor=500, mode='channel'))
+                     prox=l1_prox(lam=init_params['lam'], maximum_factor=500, mode= mode))
     
     
-    # model_output_file = 'results/model_data/densenet/mnist_densenet_channel_sparse_model_init_params_.dat'
-    # progress_data_output_file = 'results/progress_data/densenet/mnist_densenet_channel_sparse_training_progress_init_params.csv'
+    model_output_file = 'results/model_data/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_init_params.dat'
+    progress_data_output_file = 'results/progress_data/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_init_params.csv'
+    onnx_output_file = 'onnx_results/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_init_params.onnx'
     
-    model_output_file = None
-    progress_data_output_file = None
+    # model_output_file = None
+    # progress_data_output_file = None
+    # onnx_output_file = None
     
-    # Use the following below to visualize necessary 'num_epoch' for bayesian optimization
     progress_df = progress_dataframe(model=model,
                                      params=init_params,
                                      model_output_file=model_output_file,
                                      progress_data_output_file = progress_data_output_file,
-                                     data = 'mnist',
+                                     data = data,
                                      transform_train = transform_train,
                                      transform_val = transform_val,
                                      optimizer = optimizer,
                                      training_specs = training_specs,
-                                     train_batch_size = train_batch_size,
-                                     subset_Data = subset_Data,
-                                     num_epoch = num_epoch)
-    # From the dataframe above:
-    #     Training accuracy reaches maximum 97-99% after 10 epochs on full 
-    #     Testing accuracy reaches 96% after 15 epochs and 98% after 20 epochs
-    #     Sparsity is 96% after 10 epochs and 97% after 20 epochs
-    #     Cross Entropy Loss is minimized to [.03, .3] after 10 epochs
+                                     train_batch_size=128,
+                                     subset_Data=subset_Data,
+                                     num_epoch=num_epoch,
+                                     onnx_output_file= onnx_output_file)
     
-    
-    params_output_file = 'results/bayes_opt_params/densenet/mnist_densenet_channel_sparse_model_bayes_params.dat'
-    trials_output_file = 'results/bayes_opt_params/densenet/mnist_densenet_channel_sparse_model_bayes_trials.dat'
+    params_output_file = 'results/bayes_opt_params/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_bayes_params.dat'
+    trials_output_file = 'results/bayes_opt_params/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_bayes_trials.dat'
+    trials_df_output_file = 'results/bayes_opt_params/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_bayes_trials.csv'
     
     # params_output_file = None
     # trials_output_file = None
-    model =  mnist_densenet().to(device)
-    # Experimentally determined 5e-5 is too large for lambda
-    space = DenseNetParamSpace(expected_lam = 5e-8, max_lam = 5e-5, prob_max_lam = .01,
-                  init_lr_low = 0, init_lr_high = math.log(2), av_low = 0, av_high = 1,
-                  mom_ts = 9.5, b_mom_ts = 9.5)
-    
-    best_params, trials = tune_parameters(model=model,
-                                          model_type = 'densenet',
-                                          mode = 'channel',
-                                          space = space,
-                                          params_output_file = params_output_file,
-                                          trials_output_file = trials_output_file,
-                                          data = 'mnist',
-                                          transform_train = transform_train,
-                                          train_batch_size=128,
-                                          subset_Data= 2**13,
-                                          k_folds=1,
-                                          num_epoch=20,
-                                          max_evals=100)
-    
-    best_params = torch.load(params_output_file)
-    trials = torch.load(trials_output_file)
-    
+    # trials_df_output_file  = None
     
     model = mnist_densenet().to(device)
     
-    model_output_file = 'results/model_data/densenet/mnist_densenet_channel_sparse_model_bayes_params.dat'
-    progress_data_output_file = 'results/progress_data/densenet/mnist_densenet_channel_sparse_training_progress_bayes_params.csv'
+    
+    space = DenseNetParamSpace(expected_lam = 5e-8, max_lam = 5e-5, prob_max_lam = 1e-2,
+                 init_lr_low = 0, init_lr_high = np.log(2), av_low = 0, av_high = 1,
+                 mom_ts = 9.5, b_mom_ts = 9.5, sigma_mom_ts= 1, sigma_b_mom_ts= 1,
+                 expected_wd= None)
+    
+    
+    best_params, trials = tune_parameters(model=model,
+                                          it_specs= optimizer.it_specs.get_type(),
+                                          mode = optimizer.prox.mode,
+                                          space = space,
+                                          params_output_file = params_output_file,
+                                          trials_output_file = trials_output_file,
+                                          data = data,
+                                          transform_train = transform_train,
+                                          train_batch_size=128,
+                                          subset_Data= subset_Data,
+                                          k_folds=1,
+                                          num_epoch=2,
+                                          max_evals= 2,
+                                          max_iter= max_iter)
+    
+    best_params = torch.load(params_output_file)
+    trials = torch.load(trials_output_file)
+    trials_df = trials_to_df(trials, trials_df_output_file)
+    
+    model = mnist_densenet().to(device)
+    
+    model_output_file = 'results/model_data/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_bayes_params.dat'
+    progress_data_output_file = 'results/progress_data/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_bayes_params.csv'
+    onnx_output_file = 'onnx_results/densenet/'+mode+'/'+optimizer.it_specs.get_type()+'/'+save_str+'_bayes_params.onnx'
     
     # model_output_file = None
     # progress_data_output_file = None
+    # onnx_output_file = None
     
     training_specs = CosineSpecs(max_iter=max_iter, 
                                   init_step_size= 2 - best_params['init_lr'],
@@ -133,16 +144,17 @@ if __name__ == '__main__':
                       prox=l1_prox(lam=best_params['lam'], maximum_factor=500))
     
     progress_df = progress_dataframe(model=model,
-                                      params=best_params,
-                                      model_output_file=model_output_file,
-                                      progress_data_output_file = progress_data_output_file,
-                                      data = 'mnist',
-                                      transform_train = transform_train,
-                                      transform_val = transform_val,
-                                      optimizer = optimizer,
-                                      training_specs = training_specs,
-                                      train_batch_size=128,
-                                      subset_Data=None,
-                                      num_epoch=30)
+                                     params=init_params,
+                                     model_output_file=model_output_file,
+                                     progress_data_output_file = progress_data_output_file,
+                                     data = data,
+                                     transform_train = transform_train,
+                                     transform_val = transform_val,
+                                     optimizer = optimizer,
+                                     training_specs = training_specs,
+                                     train_batch_size=128,
+                                     subset_Data=subset_Data,
+                                     num_epoch=num_epoch,
+                                     onnx_output_file= onnx_output_file)
     
     print(time.time() - t0)

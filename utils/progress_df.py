@@ -7,7 +7,28 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.utils.data import Subset
-from test_accuracy import test_accuracy
+
+
+def test_accuracy(test_loader, net, cuda=False):
+  # Test the network on the test set.
+  net.eval()
+  correct = 0
+  total = 0
+  for data in test_loader:
+    images, labels = data
+    images = Variable(images)
+    labels = labels
+    if cuda:
+      images = images.cuda()
+      labels = labels.cuda()
+    outputs = net(images)
+    _, predicted = torch.max(outputs.data, 1)
+    total += labels.size(0)
+    correct += (predicted == labels).sum()
+  net.train()
+  return (10000 * correct / total)
+
+
     
 def progress_dataframe(model, params, model_output_file, progress_data_output_file, data,
                        transform_train, transform_val, optimizer, training_specs,
@@ -247,8 +268,9 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
           # Calculate train accuracy
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
-            print('Epoch: ', epoch+1)
-            print('Epoch progress: ', epoch_prog, '/', len_per_epoch, sep = '')
+            if (epoch_prog-1) % 50 == 0:
+                print('Epoch: ', epoch+1)
+                print('Epoch progress: ', epoch_prog, '/', len_per_epoch, sep = '')
             correct += (predicted == labels).sum()
             progress_df.Train_acc[progress_df_idx] = 100*correct.item()/total
             sparsity= sum(torch.nonzero(x).size()[0] for x in list(model.parameters()))
@@ -268,13 +290,15 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
                 av_update = training_specs.av_param(optimizer.iteration)
             
             progress_df.av_param[progress_df_idx] = av_update
-            print('Current Loss: ', loss.item())
-            print('Current Train Accuracy:', 100*correct.item()/total)
-            print('Current Sparsity:', 100*(1 - sparsity/num_model_params))
             
+            if (epoch_prog-1) % 50 == 0:
+                print('Current Loss: ', loss.item())
+                print('Current Train Accuracy:', 100*correct.item()/total)
+                print('Current Sparsity:', 100*(1 - sparsity/num_model_params))
+                print('')
+                
             progress_df_idx += 1
-            print('')
-            
+ 
         
         accuracy = 10000 * correct / total
         sparsity = 10000 * (1- sparsity/num_model_params)
@@ -284,7 +308,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
             t_accuracy = test_accuracy(testloader, model, cuda=True)
         
         progress_df.Epoch_Final_Test_acc[(epoch)*len_per_epoch:(epoch+1)*len_per_epoch] = t_accuracy.item()/100
-        print('Epoch:%d %% Training Accuracy: %d.%02d %% Test Accuracy: %d.%02d %% \nSparsity Percentage: %d.%02d %%' % (epoch+1,
+        print('Epoch: %d %% Training Accuracy: %d.%02d %% Test Accuracy: %d.%02d %% \nSparsity Percentage: %d.%02d %%' % (epoch+1,
                                 accuracy / 100, accuracy % 100, t_accuracy / 100, t_accuracy % 100, sparsity/100, sparsity % 100))
         
         print('')
