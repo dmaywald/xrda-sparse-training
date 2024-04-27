@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     init_params = {
         'init_lr': 1.0, #1.0 by default
-        'lam': 5e-8, #5e-8 by default
+        'lam': 5e-7, #5e-7 by default
         'av_param': 0.0, # 0.0 by default
         'mom_ts': 9.5, # 9.5 by default
         'b_mom_ts': 9.5, # 9.5 by default
@@ -36,8 +36,8 @@ if __name__ == '__main__':
     train_batch_size = 128
     num_epoch = 20
     subset_Data = None
-    mode = 'channel' # normal, channel, or kernel
-    save_str = 'mnist_densenet40_channel_cosine_specs'
+    mode = 'normal' # normal, channel, or kernel
+    save_str = 'mnist_densenet40_unstructured_cosine_specs'
     data = 'mnist'
     
     
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     model = mnist_densenet().to(device)
     
     
-    space = DenseNetParamSpace(expected_lam = 5e-8, max_lam = 1e-5, prob_max_lam = 1e-2,
+    space = DenseNetParamSpace(expected_lam = 5e-7, max_lam = 1e-5, prob_max_lam = 1e-2,
                  init_lr_low = 0, init_lr_high = np.log(2), av_low = 0, av_high = 1,
                  mom_ts = 9.5, b_mom_ts = 9.5, sigma_mom_ts= 1, sigma_b_mom_ts= 1,
                  expected_wd= None)

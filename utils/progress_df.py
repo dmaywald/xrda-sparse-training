@@ -268,7 +268,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
           # Calculate train accuracy
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
-            if (epoch_prog-1) % 50 == 0:
+            if (epoch_prog-1) % 150 == 0:
                 print('Epoch: ', epoch+1)
                 print('Epoch progress: ', epoch_prog, '/', len_per_epoch, sep = '')
             correct += (predicted == labels).sum()
@@ -291,7 +291,7 @@ def progress_dataframe(model, params, model_output_file, progress_data_output_fi
             
             progress_df.av_param[progress_df_idx] = av_update
             
-            if (epoch_prog-1) % 50 == 0:
+            if (epoch_prog-1) % 150 == 0:
                 print('Current Loss: ', loss.item())
                 print('Current Train Accuracy:', 100*correct.item()/total)
                 print('Current Sparsity:', 100*(1 - sparsity/num_model_params))
