@@ -51,8 +51,7 @@ if __name__ == '__main__':
     
 
 
-    # for C in [1/8, 1/4, 1/2, 1, 2, 4, 8]:
-    for C in [1/4, 1/2, 1, 2, 4, 8]:    
+    for C in [1/8, 1/4, 1/2, 1, 2, 4, 8]: 
         params_output_file = 'results/bayes_opt_params/vgg/'+mode+'/'+'CosineSpecs'+'/sparse_scale_'+str(C)+'_'+save_str+'_bayes_params.dat'
         trials_output_file = 'results/bayes_opt_params/vgg/'+mode+'/'+'CosineSpecs'+'/sparse_scale_'+str(C)+'_'+save_str+'_bayes_trials.dat'
         trials_df_output_file = 'results/bayes_opt_params/vgg/'+mode+'/'+'CosineSpecs'+'/sparse_scale_'+str(C)+'_'+save_str+'_bayes_trials.csv'

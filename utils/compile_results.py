@@ -28,11 +28,14 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def collect_csv_data(great_grand_par, grand_par, par):
     df_list = []
+    results_list = []
     dir_name = 'results/progress_data/'+great_grand_par+'/'+grand_par+'/'+par+'/'
     bayes_params_dir = 'results/bayes_opt_params/'+great_grand_par+'/'+grand_par+'/'+par+'/'
     model_data_dir = 'results/model_data/'+great_grand_par+'/'+grand_par+'/'+par+'/'
     file_list = os.listdir(dir_name)
     # print(os.listdir(bayes_params_dir))
+    # print(great_grand_par, grand_par, par)
+
     for file in file_list:
         string_list = file.split("_")
         if string_list[0] == 'sparse':
@@ -81,18 +84,21 @@ def collect_csv_data(great_grand_par, grand_par, par):
         df = df.assign(train_sepcs = train_specs)    
         df = df.assign(params_type = params_type)
         df = df.assign(sparse_scale = sparse_scale)
-
         df_list.append(df)
+        results_list.append(df.iloc[-1,:])
+
     
-    
-    final_content = pd.concat([df for df in df_list], axis = 0) 
-    
-    ends = pd.Series(final_content['Unnamed: 0'] == max(final_content['Unnamed: 0']))
-    results = final_content[ends]
+    final_content = pd.concat([result for result in results_list], axis = 1).T 
+    float_cols = ["Unnamed: 0", "Epoch", "loss", "Train_acc", "Epoch_Final_Test_acc", "Sparsity",
+     "mom_ts", "b_mom_ts", "weight_decay", "lam", "maximum_factor", 'init_step_size',
+     "init_av"]
+    final_content[float_cols] = final_content[float_cols].apply(pd.to_numeric)
+    # ends = pd.Series(final_content['Unnamed: 0'] == max(final_content['Unnamed: 0']))
+    results = final_content
     results.index = [i for i in range(len(results))]
     results = results.drop('step_size', axis = 1)
     results = results.drop('av_param', axis = 1)
-    return results, final_content
+    return results, df_list
 
 
 results_list = []
@@ -117,6 +123,7 @@ final_result = final_result.assign(lam_rewrite = final_result['lam']*(10**6))
 final_result = final_result.assign(a_0 = final_result['init_av'])
 final_result = final_result.assign(s_0 = final_result['init_step_size'])
 final_result = final_result.assign(top1 = final_result['Epoch_Final_Test_acc'])
+final_result = final_result.assign(perc_non_zero = 1 - final_result["Sparsity"]) 
 final_result = final_result.assign(compression_ration = 1/(1-final_result['Sparsity']))
 
 
