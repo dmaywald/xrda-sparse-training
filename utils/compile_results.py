@@ -123,7 +123,7 @@ final_result = final_result.assign(lam_rewrite = final_result['lam']*(10**6))
 final_result = final_result.assign(a_0 = final_result['init_av'])
 final_result = final_result.assign(s_0 = final_result['init_step_size'])
 final_result = final_result.assign(top1 = final_result['Epoch_Final_Test_acc'])
-final_result = final_result.assign(perc_non_zero = 1 - final_result["Sparsity"]) 
+final_result = final_result.assign(perc_zero = 100*(final_result["Sparsity"])) 
 final_result = final_result.assign(compression_ration = 1/(1-final_result['Sparsity']))
 
 
